@@ -12,19 +12,56 @@ Milestone 2 adds transient port evolution: integration of ``dr_p/dt = r_dot``
 under a *prescribed* oxidizer mass-flow history, with fuel-depletion event
 handling and time histories of regression rate, fuel flow and O/F.
 
-Both milestones deliberately do **not** model N2O tank thermodynamics, injector
-flow, chamber pressure, combustion efficiency, equilibrium chemistry, c*,
-nozzle flow, thrust, structures, thermal response, ignition or fabrication.
+Milestone 3 adds a quasi-steady chamber mass balance with a *prescribed*
+characteristic velocity and a 1-D isentropic converging-diverging nozzle,
+producing chamber pressure, exit state, thrust, thrust coefficient and specific
+impulse -- still under a prescribed oxidizer mass flow.
+
+All three milestones deliberately do **not** model N2O tank thermodynamics,
+vapour-liquid equilibrium, blowdown, injector flow, feed-line losses,
+equilibrium chemistry, combustion instability, ignition transients, structural
+design or thermal design.
 """
 
 from __future__ import annotations
 
+from .chamber import (
+    ILLUSTRATIVE_N2O_HTPB_COMBUSTION,
+    UNIVERSAL_GAS_CONSTANT_J_MOL_K,
+    ChamberState,
+    ChamberStatus,
+    CombustionProperties,
+    ideal_characteristic_velocity,
+    solve_chamber,
+)
 from .geometry import REPRESENTATIVE_GRAIN, GrainGeometry
+from .nozzle import (
+    NEAR_IDEAL_PRESSURE_TOLERANCE,
+    REFERENCE_NOZZLE,
+    SUMMERFIELD_SEPARATION_RATIO,
+    ExpansionRegime,
+    NozzleExitState,
+    NozzleGeometry,
+    area_mach_ratio,
+    classify_expansion_regime,
+    isentropic_pressure_ratio,
+    isentropic_temperature_ratio,
+    solve_nozzle_exit,
+    solve_supersonic_exit_mach,
+    speed_of_sound,
+)
 from .operating_point import (
     OperatingPoint,
     fuel_mass_flow,
     mixture_ratio,
     oxidizer_mass_flux,
+)
+from .performance import (
+    STANDARD_GRAVITY_M_S2,
+    PerformancePoint,
+    ThrustHistory,
+    couple_transient_to_performance,
+    solve_performance_point,
 )
 from .regression import (
     ILLUSTRATIVE_ANCHOR_FLUX_SI,
@@ -52,35 +89,60 @@ from .transient import (
     simulate_transient,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "ILLUSTRATIVE_ANCHOR_FLUX_SI",
+    "ILLUSTRATIVE_N2O_HTPB_COMBUSTION",
     "ILLUSTRATIVE_SENSITIVITY_LAWS",
+    "NEAR_IDEAL_PRESSURE_TOLERANCE",
+    "REFERENCE_NOZZLE",
     "REPRESENTATIVE_GRAIN",
     "REZAEI_2018_N2O_HTPB",
+    "STANDARD_GRAVITY_M_S2",
+    "SUMMERFIELD_SEPARATION_RATIO",
+    "UNIVERSAL_GAS_CONSTANT_J_MOL_K",
     "CallableOxidizerFlow",
+    "ChamberState",
+    "ChamberStatus",
+    "CombustionProperties",
     "ConstantOxidizerFlow",
+    "ExpansionRegime",
     "FlowSegment",
     "FluxRangeStatus",
     "GrainGeometry",
     "MassFluxUnit",
+    "NozzleExitState",
+    "NozzleGeometry",
     "OperatingPoint",
     "OxidizerFlowHistory",
+    "PerformancePoint",
     "PiecewiseConstantOxidizerFlow",
     "PowerLawRegressionLaw",
     "Provenance",
     "RegressionRateUnit",
     "TerminationReason",
+    "ThrustHistory",
     "TransientResult",
     "__version__",
     "analytic_constant_flow_burnout_time",
     "analytic_constant_flow_radius",
     "analytic_constant_flow_speed_coefficient",
+    "area_mach_ratio",
+    "classify_expansion_regime",
+    "couple_transient_to_performance",
     "fuel_mass_flow",
+    "ideal_characteristic_velocity",
     "illustrative_exponent_variant",
+    "isentropic_pressure_ratio",
+    "isentropic_temperature_ratio",
     "mixture_ratio",
     "oxidizer_mass_flux",
     "remaining_fuel_mass_kg",
     "simulate_transient",
+    "solve_chamber",
+    "solve_nozzle_exit",
+    "solve_performance_point",
+    "solve_supersonic_exit_mach",
+    "speed_of_sound",
 ]

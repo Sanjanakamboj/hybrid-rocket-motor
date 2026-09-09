@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hybrid-rocket-motor"
-version = "0.2.0"
-description = "Reduced-order N2O/HTPB hybrid rocket motor model: geometry, regression rate, and transient port evolution under prescribed oxidizer flow."
+version = "0.3.0"
+description = "Reduced-order N2O/HTPB hybrid rocket motor model: regression rate, transient port evolution, and quasi-steady chamber/nozzle thrust prediction under prescribed oxidizer flow."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -41,3 +41,4 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "NPY", "RUF"]
 # Figure labels intentionally use typographic en dashes for numeric ranges.
 "scripts/generate_m1_figures.py" = ["RUF001"]
 "scripts/generate_m2_figures.py" = ["RUF001"]
+"scripts/generate_m3_figures.py" = ["RUF001"]

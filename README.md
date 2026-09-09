@@ -5,8 +5,11 @@ HTPB hybrid rocket motor.
 
 * **Milestone 1** — instantaneous prescribed-flow regression bookkeeping.
 * **Milestone 2** — transient prescribed-flow port evolution, burnout and mass closure.
+* **Milestone 3** — quasi-steady chamber pressure, 1-D nozzle and **thrust**.
 
-**Neither milestone predicts chamber pressure or thrust.**
+Milestone 3 predicts thrust from **prescribed** combustion properties under a
+**prescribed** oxidizer flow. It is not a validated motor, not an optimised
+nozzle, and chamber pressure does not feed back into the oxidizer supply.
 
 > **Scope.** This is an educational, reduced-order study. It is **not** a motor
 > design, a fabrication guide, a test procedure, or a flight-hardware model. The
@@ -54,6 +57,96 @@ variable integrated forward under a **prescribed** oxidizer mass-flow history:
 **The oxidizer flow is still prescribed.** Milestone 2 adds no feed-system,
 injector, tank or chamber physics, and still computes no chamber pressure, `c*`,
 nozzle flow or thrust.
+
+## Milestone 3 scope
+
+Milestone 3 makes the model thrust-capable. Each instantaneous propellant-flow
+state is coupled to a quasi-steady chamber mass balance and a 1-D isentropic
+converging–diverging nozzle:
+
+* chamber pressure from a **prescribed** characteristic velocity,
+* supersonic exit Mach from the area–Mach relation (bracketed Brent solve),
+* exit pressure, temperature and velocity from the isentropic relations,
+* thrust, thrust coefficient and specific impulse,
+* expansion-regime classification and a Summerfield separation flag,
+* deterministic ambient-pressure and combustion-property sensitivity studies.
+
+**Still prescribed, still not validated.** Milestone 3 adds **no** N₂O tank
+thermodynamics, vapour–liquid equilibrium, blowdown, injector sizing or
+pressure-drop, feed-line losses, ignition or chamber-filling transient,
+combustion instability, equilibrium chemistry, nozzle contour, shock or
+separation model, or structural/thermal sizing.
+
+### Chamber mass balance
+
+Characteristic velocity is *defined* by `c* = p_c A_t / ṁ`. Combining it with a
+quasi-steady chamber balance `ṁ_ox + ṁ_f = ṁ_nozzle` gives
+
+```
+p_c = (ṁ_ox + ṁ_f) · c* / A_t
+```
+
+with negligible chamber gas storage, no ignition transient, no finite-rate
+combustion, and combustion efficiency absorbed into the prescribed `c*`.
+
+### Nozzle relations
+
+```
+A_e/A_t = (1/M_e) [ (2/(γ+1)) (1 + (γ−1) M_e²/2) ]^((γ+1)/(2(γ−1)))
+p_e/p_c = [1 + (γ−1) M_e²/2]^(−γ/(γ−1))
+T_e/T_c = [1 + (γ−1) M_e²/2]^(−1)
+V_e     = M_e √(γ R T_e)
+F       = ṁ V_e + (p_e − p_a) A_e
+C_F     = F / (p_c A_t)
+I_sp    = F / (ṁ g₀)
+```
+
+### Prescribed combustion properties — ILLUSTRATIVE, not chemistry
+
+| Property | Value | Status |
+| --- | ---: | --- |
+| `γ` | 1.20 | round value, prescribed |
+| `T_c` | 2600 K | round value, prescribed |
+| Molar mass `M` | 22.0 g/mol | round value, prescribed |
+| `R` | 377.930 J/(kg·K) | derived, `R_u/M` |
+| Ideal `c*` | 1528.486 m/s | derived from `γ`, `R`, `T_c` |
+| `c*` efficiency | 0.96 | midpoint of the 94–98 % measured by Rezaei et al. (2018) |
+| **Delivered `c*`** | **1467.347 m/s** | **derived from the four rows above** |
+
+These four primitives were fixed **before** any thrust was computed and were not
+adjusted afterwards. The delivered `c*` is a *consequence* of them, not a target.
+That it lands inside the 1403–1587 m/s the same study measured for HTPB/N₂O is a
+weak consistency check, **not** a validation. There is no equilibrium-chemistry
+solver and no CEA interface anywhere in this repository.
+
+The model exposes `ideal_c_star_m_s` and `c_star_efficiency` so that the internal
+consistency of any prescribed set is visible rather than hidden.
+
+### Reference nozzle — illustrative, documented, not optimised
+
+| Parameter | Value |
+| --- | ---: |
+| Throat diameter `D_t` | 10.000 mm |
+| Exit diameter `D_e` | 20.000 mm |
+| Throat area `A_t` | 7.853982 × 10⁻⁵ m² |
+| Exit area `A_e` | 3.141593 × 10⁻⁴ m² |
+| Expansion ratio `ε` | 4.000 |
+| Reference ambient `p_a` | 101325 Pa |
+
+Selection was by inspection of round candidates against the chamber pressure the
+Milestone 1 flow implies, with the 19.9–31.0 bar measured by Rezaei et al. as the
+plausibility band:
+
+| `D_t` [mm] | `p_c` [bar] | Verdict |
+| ---: | ---: | --- |
+| 8 | 40.80 | outside the band |
+| **10** | **26.11** | **inside — chosen** |
+| 12 | 18.13 | outside the band |
+| 15 | 11.61 | outside the band |
+
+`ε = 4` is a round, modest choice. Ideal sea-level expansion for this chamber
+pressure would need `ε ≈ 4.34`, so the reference nozzle is **slightly
+underexpanded** at sea level. No thrust target influenced either choice.
 
 ### Transient state equation
 
@@ -291,6 +384,153 @@ fuel mass flow **rises** by a factor 1.24. The burning area grows as `r_p` while
 excursion of only about 19 % across an entire burn. That mildness is a direct
 consequence of the low sourced flux exponent flagged in Milestone 1.
 
+## Milestone 3 representative results
+
+### Reference point — the Milestone 1 operating point, now with thrust
+
+Prescribed `ṁ_ox = 0.100 kg/s`, `ṁ_f = 0.039776644 kg/s`, `p_a = 101325 Pa`:
+
+| Quantity | Value |
+| --- | ---: |
+| `ṁ_total` | 0.139777 kg/s |
+| `O/F` | 2.514 |
+| **Chamber pressure `p_c`** | **2 611 424.85 Pa = 26.114 bar** |
+| **Exit Mach `M_e`** | **2.619447** |
+| **Exit pressure `p_e`** | **113 631.85 Pa** (`p_e/p_c` = 0.043513) |
+| **Exit temperature `T_e`** | **1541.974 K** |
+| Exit speed of sound `a_e` | 836.248 m/s |
+| **Exit velocity `V_e`** | **2190.506 m/s** |
+| **Momentum thrust** | **306.182 N** |
+| **Pressure thrust** | **+3.866 N** |
+| **Total thrust `F`** | **310.048 N** |
+| **Thrust coefficient `C_F`** | **1.511685** |
+| **Specific impulse `I_sp`** | **226.190 s** |
+| Expansion regime | UNDEREXPANDED (attached flow expected) |
+
+Three independent routes to the same thrust:
+
+| Route | Expression | Result |
+| --- | --- | ---: |
+| A | `ṁ V_e + (p_e − p_a) A_e` | 310.047929470 N |
+| B | `C_F p_c A_t` | 310.047929470 N |
+| C | `ṁ [V_e + c* ε p_e/p_c] − p_a A_e` | 310.047929470 N |
+
+Residuals: |A − B| = 0, |A − C| = 5.7 × 10⁻¹⁴ N. The defining identity
+`p_c A_t − ṁ c*` closes to exactly 0.
+
+### Transient thrust
+
+Case A — constant prescribed `ṁ_ox = 0.100 kg/s`, integrated to burnout at
+41.740618 s:
+
+| Quantity | At `t = 0` | At burnout |
+| --- | ---: | ---: |
+| `ṁ_total` | 0.139777 kg/s | 0.149376 kg/s |
+| `p_c` | 26.114 bar | 27.908 bar |
+| Momentum thrust | 306.182 N | 327.210 N |
+| Pressure thrust | +3.866 N | +6.318 N |
+| **Thrust** | **310.048 N** | **333.528 N** |
+| `C_F` | 1.511685 | 1.521660 |
+| `I_sp` | 226.190 s | 227.683 s |
+
+| Integrated | Value |
+| --- | ---: |
+| Peak thrust | 333.528 N |
+| Mean thrust (active burn) | 324.041 N |
+| **Total impulse** | **13 525.65 N·s** |
+| Propellant consumed | 6.073155 kg |
+| **Equivalent `I_sp`** | **227.103 s** |
+
+Across the four cases:
+
+| Case | `ṁ_ox` [kg/s] | Burn [s] | `p_c` [bar] | Thrust [N] | Total impulse [N·s] | `I_sp,eq` [s] | Regime at sea level |
+| --- | ---: | ---: | --- | --- | ---: | ---: | --- |
+| A | 0.100 | 41.741 | 26.11 → 27.91 | 310.0 → 333.5 | 13 525.65 | 227.10 | UNDEREXPANDED |
+| B | 0.050 | 53.820 | 15.10 → 16.50 | 165.9 → 184.1 | 9 513.75 | 211.35 | **OVEREXPANDED** |
+| C | 0.150 | 35.974 | 36.65 → 38.73 | 447.9 → 475.2 | 16 698.13 | 233.41 | UNDEREXPANDED |
+| D | piecewise | 34.0 active | 26.11 → 38.01 | 310.0 → 465.8 | 12 367.03 | 229.34 | UNDEREXPANDED |
+
+Chamber pressure and thrust both **rise** through every constant-flow burn,
+because Milestone 2's fuel flow rises as the port opens while the throat is fixed.
+
+**The low-flow case flips the sign of the pressure term.** Case B runs at only
+15–16.5 bar, so its exit pressure (≈ 66 kPa) falls below ambient and the nozzle is
+**overexpanded**: its pressure thrust is negative throughout, −11.18 to −9.28 N.
+The same fixed `ε = 4` nozzle is therefore underexpanded at the nominal and high
+flows and overexpanded at the low flow — a direct consequence of holding the
+geometry fixed while the chamber pressure varies by a factor of 2.5 across cases.
+Case B still sits above the Summerfield limit (`p_e/p_a ≈ 0.65` against 0.4), so
+attached flow remains the expected condition; separation is not modelled.
+
+### Ambient-pressure sensitivity
+
+Deterministic nozzle sensitivity at the fixed reference chamber state — **not**
+an altitude-performance envelope; no atmosphere model exists in this project.
+
+| `p_a` [Pa] | Thrust [N] | Pressure thrust [N] | `C_F` | `I_sp` [s] | Regime |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 101 325 | 310.048 | +3.866 | 1.51169 | 226.190 | UNDEREXPANDED |
+| 54 020 | 324.909 | +18.728 | 1.58414 | 237.032 | UNDEREXPANDED |
+| 26 500 | 333.555 | +27.373 | 1.62630 | 243.339 | UNDEREXPANDED |
+| 1 197 | 341.504 | +35.322 | 1.66505 | 249.138 | UNDEREXPANDED |
+| 0 | 341.880 | +35.699 | 1.66689 | 249.413 | VACUUM |
+
+Sea level to vacuum gains **31.832 N**, exactly `p_a A_e`. The momentum term and
+the entire exit state are unchanged — the nozzle is choked, so only the pressure
+term moves.
+
+### Combustion-property sensitivity
+
+Deterministic one-factor variation of the prescribed assumptions — **not**
+uncertainty propagation. Mass flow and nozzle geometry are held fixed.
+
+| Case | `p_c` [bar] | `M_e` | `V_e` [m/s] | Thrust [N] | ΔF | Implied `η_c*` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 26.114 | 2.6194 | 2190.51 | 310.048 | — | 0.960 |
+| `c*` −10 % | 23.503 | 2.6194 | 2190.51 | 306.478 | −1.15 % | 0.864 |
+| `c*` +10 % | 28.726 | 2.6194 | 2190.51 | 313.618 | +1.15 % | 1.056 |
+| `γ` = 1.15 | 26.114 | 2.5458 | 2219.96 | 317.824 | +2.51 % | 0.945 |
+| `γ` = 1.25 | 26.114 | 2.6956 | 2162.64 | 302.873 | −2.31 % | 0.974 |
+| `T_c` −10 % | 26.114 | 2.6194 | 2078.10 | 294.336 | −5.07 % | 1.012 |
+| `T_c` +10 % | 26.114 | 2.6194 | 2297.42 | 324.992 | +4.82 % | 0.915 |
+
+The structure is worth stating plainly: a 10 % change in `c*` moves chamber
+pressure by exactly 10 % but thrust by only 1.15 %, because `V_e` is untouched
+and only the small pressure term scales. `T_c` moves `V_e` as `√T_c` and
+dominates thrust while leaving `p_c` alone. `γ` shifts the area–Mach solution but
+not `p_c`. Because `ṁ` is fixed, `ΔI_sp` is identical to `ΔF` in every row.
+
+Note the `c*` +10 % row implies `η_c* = 1.056` — a physically impossible
+efficiency. That is exactly the point of showing the column: varying one
+prescribed property alone makes the set internally inconsistent, which is why
+these are labelled assumptions rather than data.
+
+### Numerical convergence
+
+Exit-Mach root solve (`ε = 4`, `γ = 1.20`), and transient integration:
+
+| `xtol` | `M_e` | Area–Mach residual |
+| ---: | ---: | ---: |
+| 1e−04 | 2.619446781721 | 2.7 × 10⁻⁸ |
+| 1e−08 | 2.619446776666 | −1.4 × 10⁻¹² |
+| 1e−12 | 2.619446776666 | 1.2 × 10⁻¹² |
+| 1e−15 | 2.619446776666 | 0 |
+
+| `rtol` | `n_report` | `t_burn` [s] | Peak `F` [N] | `I_total` [N·s] | `I_sp,eq` [s] |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1e−05 | 201 | 41.740617467 | 333.528161 | 13 525.649028 | 227.103122 |
+| 1e−07 | 401 | 41.740617771 | 333.528161 | 13 525.651206 | 227.103159 |
+| 1e−09 | 801 | 41.740617800 | 333.528161 | 13 525.651738 | 227.103168 |
+| 1e−11 | 1601 | 41.740617803 | 333.528161 | 13 525.651869 | 227.103170 |
+
+### A result reported rather than corrected
+
+The predicted `I_sp` of 226.2 s **exceeds** the 167–223 s measured by Rezaei et
+al. for a comparable motor. That is expected: this is an ideal 1-D isentropic
+nozzle with no divergence loss, no boundary layer, no heat loss and no two-phase
+effects, and the `c*` efficiency is the *only* loss represented anywhere in the
+model. The discrepancy is stated rather than absorbed into a fudge factor.
+
 ## Installation
 
 ```bash
@@ -325,6 +565,14 @@ study and the engineering sanity audit):
 python scripts/transient_regression_study.py
 ```
 
+Run the Milestone 3 thrust study (reference point with three independent thrust
+routes, four transient cases, ambient-pressure and combustion-property
+sensitivity, convergence and the sanity audit):
+
+```bash
+python scripts/thrust_prediction_study.py
+```
+
 Regenerate the figures (deterministic — byte-identical on repeated runs within a
 given environment; see note below):
 
@@ -334,6 +582,10 @@ python scripts/generate_m1_figures.py
 
 ```bash
 python scripts/generate_m2_figures.py
+```
+
+```bash
+python scripts/generate_m3_figures.py
 ```
 
 All figure inputs are fixed constants, the Agg backend is forced, every rendering
@@ -350,12 +602,14 @@ pytest -W error -q
 ruff check .
 ```
 
-286 tests (167 Milestone 1, 119 Milestone 2). Expected values are written
-independently of the production code — independently arranged algebra,
-hand-computed literals, an independent unit-conversion route, all 18 published
-`(G_ox, ṙ)` measurements from the source paper's own data table, and for the
-transient model a closed-form solution re-derived inside the test file and
-chained by hand across piecewise schedules.
+501 tests (167 Milestone 1, 119 Milestone 2, 215 Milestone 3). Expected values
+are written independently of the production code — independently arranged
+algebra, hand-computed literals, an independent unit-conversion route, all 18
+published `(G_ox, ṙ)` measurements from the source paper's own data table, a
+closed-form transient solution re-derived inside the test file and chained by
+hand across piecewise schedules, and for Milestone 3 a full longhand
+reimplementation of the chamber/nozzle chain including a plain-bisection
+area–Mach inversion that never touches scipy or the production solver.
 
 ## Figures
 
@@ -377,6 +631,17 @@ Milestone 2:
 | **M2-D** — Fuel mass bookkeeping and conservation residual | [`figures/fig_m2_d_mass_closure.png`](figures/fig_m2_d_mass_closure.png) |
 | **M2-E** — Response to a piecewise prescribed schedule | [`figures/fig_m2_e_piecewise.png`](figures/fig_m2_e_piecewise.png) |
 
+Milestone 3:
+
+| Figure | File |
+| --- | --- |
+| **M3-A** — Chamber pressure vs time | [`figures/fig_m3_a_chamber_pressure.png`](figures/fig_m3_a_chamber_pressure.png) |
+| **M3-B** — **Predicted thrust vs time** | [`figures/fig_m3_b_thrust.png`](figures/fig_m3_b_thrust.png) |
+| **M3-C** — Nozzle pressure ratios and expansion regime | [`figures/fig_m3_c_nozzle_state.png`](figures/fig_m3_c_nozzle_state.png) |
+| **M3-D** — Ambient-pressure sensitivity | [`figures/fig_m3_d_ambient_sensitivity.png`](figures/fig_m3_d_ambient_sensitivity.png) |
+| **M3-E** — Prescribed-property sensitivity | [`figures/fig_m3_e_property_sensitivity.png`](figures/fig_m3_e_property_sensitivity.png) |
+| **M3-F** — Piecewise-schedule thrust response | [`figures/fig_m3_f_piecewise_thrust.png`](figures/fig_m3_f_piecewise_thrust.png) |
+
 ![Generic hybrid grain geometry](figures/fig_a_grain_geometry.png)
 
 ![Regression rate versus oxidizer mass flux](figures/fig_b_regression_vs_flux.png)
@@ -393,6 +658,18 @@ Milestone 2:
 
 ![Response to a piecewise prescribed oxidizer-flow schedule](figures/fig_m2_e_piecewise.png)
 
+![Chamber pressure history](figures/fig_m3_a_chamber_pressure.png)
+
+![Predicted thrust history](figures/fig_m3_b_thrust.png)
+
+![Nozzle state](figures/fig_m3_c_nozzle_state.png)
+
+![Ambient-pressure sensitivity](figures/fig_m3_d_ambient_sensitivity.png)
+
+![Prescribed-property sensitivity](figures/fig_m3_e_property_sensitivity.png)
+
+![Piecewise-schedule thrust response](figures/fig_m3_f_piecewise_thrust.png)
+
 ## Repository layout
 
 ```
@@ -401,14 +678,19 @@ src/hybrid_rocket_motor/
     operating_point.py   prescribed-ṁ_ox snapshot: G_ox, ṁ_f, O/F bookkeeping    [M1]
     regression.py        ṙ = a G_ox ⁿ with explicit source-unit handling         [M1]
     transient.py         flow histories, ODE solver, burnout event, closed form  [M2]
-tests/                   independent verification (286 tests)
+    nozzle.py            geometry, area-Mach solve, isentropic exit state        [M3]
+    chamber.py           prescribed combustion properties, quasi-steady p_c      [M3]
+    performance.py       chamber + nozzle coupling, thrust, total impulse        [M3]
+tests/                   independent verification (501 tests)
 scripts/
     manual_check.py                longhand arithmetic cross-check + scope guard [M1]
     regression_study.py            the Milestone 1 study and sanity audit        [M1]
     generate_m1_figures.py         deterministic figure generation               [M1]
     transient_regression_study.py  the Milestone 2 study, convergence and audit  [M2]
     generate_m2_figures.py         deterministic figure generation               [M2]
-figures/                 eight PNG figures
+    thrust_prediction_study.py     the Milestone 3 study, sensitivity and audit  [M3]
+    generate_m3_figures.py         deterministic figure generation               [M3]
+figures/                 fourteen PNG figures
 DESIGN.md                conventions, source audit, verification strategy
 ```
 
@@ -445,12 +727,39 @@ Additional Milestone 2 limitations:
   represents how a real feed system and chamber would interact with the growing
   port.
 
+Additional Milestone 3 limitations:
+
+* **`ṁ_ox` is prescribed externally and chamber pressure does NOT feed back into
+  it.** This is the single largest departure from a real motor: a real oxidizer
+  feed would deliver less flow as chamber pressure rises, damping exactly the
+  thrust rise this model predicts.
+* **`c*`, `γ` and `T_c` are prescribed constants** and do not vary with O/F,
+  chamber pressure or time. Real combustion properties vary with all three. There
+  is no equilibrium chemistry and no CEA interface.
+* **Combustion efficiency is represented only by the prescribed `c*`.** No other
+  loss mechanism exists anywhere in the model.
+* **The nozzle is 1-D, steady, adiabatic and isentropic** with a calorically
+  perfect gas. No divergence loss, no boundary layer, no heat transfer, no
+  two-phase flow, no shocks, no separation model, no side loads and no
+  altitude-compensating behaviour. The Summerfield flag only *marks* results that
+  would be doubtful; it does not correct them.
+* **No ignition, chamber-filling or tail-off transient.** The chamber has no gas
+  storage term, so every step in prescribed flow produces an instantaneous step in
+  pressure and thrust. A real motor cannot do that.
+* **No combustion instability, no structural sizing, no thermal sizing, no nozzle
+  contour, no materials and no fabrication information.**
+* **No experimental thrust validation.** The reference geometry is illustrative
+  and not taken from, nor validated against, any real hardware. Nothing here
+  establishes a safe operating pressure.
+
 ## Next milestone
 
-**Milestone 3 — chamber-pressure and nozzle coupling** (not started): close the
-loop between the fuel and oxidizer flows computed here, combustion properties,
-chamber pressure and nozzle flow, so that thrust can eventually be predicted.
-Nothing in the current repository computes any of that.
+**Milestone 4 — couple chamber pressure back to an N₂O feed and injector model**
+(not started): replace the prescribed oxidizer flow with one derived from a tank
+and injector, so that `ṁ_ox` responds to chamber pressure instead of being
+imposed. That requires properly sourced N₂O property data and two-phase / feed
+-system modelling, with strong scope controls. Nothing in the current repository
+computes any of that — oxidizer flow remains prescribed throughout.
 
 ## License
 

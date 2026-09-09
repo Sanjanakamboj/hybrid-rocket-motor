@@ -47,7 +47,7 @@ def _compare(name: str, hand: float, package: float, unit: str) -> bool:
 def main() -> int:
     print("=" * 86)
     print("MILESTONE 1 MANUAL CHECK - longhand arithmetic vs package output")
-    print("Generic illustrative N2O/HTPB grain. Prescribed oxidizer flow. No thrust modelled.")
+    print("Generic illustrative N2O/HTPB grain. Prescribed oxidizer flow, Milestone 1 chain.")
     print("=" * 86)
     print()
     print("PRESCRIBED INPUTS")
@@ -133,17 +133,30 @@ def main() -> int:
     results.append(monotonic)
     print()
 
-    print("STEP 11 scope guard: confirm no downstream physics is present in the model")
+    print("STEP 11 scope guard: confirm no DEFERRED physics is present in the model")
+    # Scope-boundary note (Milestone 3).
+    # This guard originally forbade chamber-pressure, nozzle and thrust symbols,
+    # which was the correct boundary for Milestones 1 and 2. Milestone 3 was
+    # chartered to add exactly those, so the guard was deliberately retargeted at
+    # the physics that is STILL deferred. This is a documented scope change, not
+    # a correction: no Milestone 1 physics, coefficient or reported value is
+    # affected, and every numeric check above is unchanged. See DESIGN.md §34.
     forbidden = (
-        "chamber_pressure",
-        "thrust",
-        "nozzle",
-        "cstar",
-        "c_star",
-        "isp",
-        "specific_impulse",
-        "injector",
+        "tank",
         "blowdown",
+        "vapour",
+        "vapor",
+        "saturation",
+        "injector",
+        "feedline",
+        "feed_line",
+        "feed_system",
+        "cea",
+        "equilibrium",
+        "ignition",
+        "instability",
+        "structural",
+        "contour",
     )
     import hybrid_rocket_motor as package_module
 
@@ -151,7 +164,7 @@ def main() -> int:
     leaked = sorted(name for name in forbidden if any(name in e for e in exported))
     clean = not leaked
     verdict = "OK  " if clean else "FAIL"
-    print(f"  [{verdict}] no chamber-pressure / nozzle / thrust symbol exported")
+    print(f"  [{verdict}] no tank / injector / feed-system / equilibrium-chemistry symbol exported")
     if leaked:
         print(f"         leaked: {leaked}")
     results.append(clean)

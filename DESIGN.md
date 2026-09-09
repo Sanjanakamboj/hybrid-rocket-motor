@@ -1,9 +1,12 @@
-# DESIGN — Milestones 1 and 2
+# DESIGN — Milestones 1, 2 and 3
 
 * **Part I (§1–§11)** — Milestone 1: instantaneous prescribed-flow regression bookkeeping.
-* **Part II (§12–§22)** — Milestone 2: transient prescribed-flow port evolution.
+* **Part II (§12–§23)** — Milestone 2: transient prescribed-flow port evolution.
+* **Part III (§24–§33)** — Milestone 3: quasi-steady chamber/nozzle performance and thrust.
 
-Neither part models chamber pressure, nozzle flow or thrust.
+Parts I and II model no chamber pressure, nozzle flow or thrust. Part III adds
+all three, but the oxidizer flow remains **prescribed** in every part: chamber
+pressure never feeds back into it, and no feed-system closure exists anywhere.
 
 ---
 
@@ -948,3 +951,373 @@ and the Milestone 2 study prints its own scope notice.
 **Milestone 3 (not started)** would couple the fuel and oxidizer flows computed
 here to combustion properties, chamber pressure and nozzle flow, so that thrust
 could eventually be predicted. No part of that exists in this repository.
+
+---
+
+# Part III — Milestone 3
+
+Quasi-steady chamber/nozzle coupling and thrust prediction, still under a
+prescribed oxidizer mass flow.
+
+---
+
+## 24. Source audit for the chamber and nozzle equations
+
+### 24.1 What was consulted
+
+| # | Source | Used for | Access |
+| --- | --- | --- | --- |
+| S4 | NASA Glenn Research Center, *Isentropic Flow Relations* (`isentrop.html`) | Static-to-total pressure and temperature ratios (their Eqs. 6 and 7) | Fetched and read |
+| S5 | NASA Glenn Research Center, *Area Ratio as a Function of Mach Number* (`astar.html`) | The area-Mach relation | Fetched and read |
+| S6 | NASA Glenn Research Center, *Mass Flow Rate at Choking Conditions* (`mflchk.html`) | Choked mass-flow relation and `V = M a = M sqrt(g R T)` | Fetched and read |
+| S7 | NASA Glenn Research Center, *Rocket Thrust Equation* (`rockth.html`) | `F = m_dot V_e + (p_e - p_0) A_e` | Fetched and read |
+| S8 | NASA Glenn Research Center, *Specific Impulse* (`specimp.html`) | `I_sp = F/(m_dot g_0)` | Fetched and read |
+| S9 | J. Seitzman, *Thrust Coefficient, Characteristic Velocity and Ideal Nozzle Expansion*, Georgia Tech AE4451 | `c* = p_0 A_t / m_dot` (their Eq. IV.14/IV.16) and `C_F = F/(p_0 A_t)` | Fetched; equations partially recoverable from the PDF |
+| S10 | M. C. Tarifa, L. Pizzuti, *Theoretical performance analysis of hybrid rocket propellants…*, EUCASS 2019-488, DOI 10.13009/EUCASS2019-488 | Ideal `c*` as a function of `k`, `T` and molar mass (their Eq. 1); adiabatic flame temperatures below 3000 K for N₂O-based hybrids | Fetched and read |
+| S11 | R. Stark, *Flow Separation in Rocket Nozzles, a Simple Criteria*, AIAA 2005-3940 (DLR) | Summerfield's `p_sep/p_a ≈ 0.4` separation rule of thumb | Criterion confirmed via search summary |
+| S1 | Rezaei, Soltani & Mohammadi, Scientia Iranica B 25(1) (2018) — the Milestone 1 regression source | Measured `c*` (1403–1587 m/s), chamber pressures (19.9–31.0 bar), thrust (15–29 kgf) and `I_sp` (167–223 s) for a comparable HTPB/N₂O motor, and the 94–98 % combustion efficiency band | Full text read in Milestone 1 |
+
+### 24.2 Equation-by-equation verification
+
+**A. Characteristic velocity.** S9 defines `c* = p_0 A_t / m_dot`. The same result
+follows independently from S6: dividing `p_c A_t` by the choked mass flow
+
+```
+m_dot = (A p_t / sqrt(T_t)) sqrt(g/R) [(g+1)/2]^(-(g+1)/(2(g-1)))
+```
+
+gives `c* = sqrt(R T_c/g) [(g+1)/2]^((g+1)/(2(g-1)))`. S10's Eq. (1) states the
+same dependence on `k`, `T` and molar mass. The test suite verifies both routes
+agree.
+
+**B. Quasi-steady chamber balance.** `m_dot_ox + m_dot_f = m_dot_nozzle`
+rearranged with A gives `p_c = (m_dot_ox + m_dot_f) c* / A_t`. This is algebra on
+the definition, not a separate physical claim.
+
+**C, D. Area-Mach relation.** S5 prints it as
+
+```
+A/A* = {[(g+1)/2]^-k} / M * [1 + M^2 (g-1)/2]^k ,   k = (g+1)/(2(g-1))
+```
+
+which is algebraically identical to the `(2/(g+1))` form used in this project,
+since `[(g+1)/2]^(-k) = (2/(g+1))^k`. The test suite checks the two arrangements
+agree to 1e-12 across five values of `gamma`.
+
+**E, F. Isentropic ratios.** S4 Eq. (6): `p/p_t = [1 + M^2 (g-1)/2]^(-g/(g-1))`.
+S4 Eq. (7): `T/T_t = [1 + M^2 (g-1)/2]^(-1)`. Chamber conditions are treated as
+stagnation conditions, the standard low-Mach-chamber assumption.
+
+**G. Exit velocity.** S6: `V = M a = M sqrt(g R T)`.
+
+**H. Thrust.** S7: `F = m_dot * Ve + (pe - p0) * Ae`, with S7 noting explicitly
+that the pressure term is needed whenever the exit pressure differs from ambient.
+
+**I. Thrust coefficient.** S9: `C_F = F/(p_0 A_t)`, so `F = C_F p_c A_t`.
+
+**J. Specific impulse.** S8: `Isp = F / (mdot * g0)`. S8's schoolroom page rounds
+`g_0` to 9.8 m/s²; this project uses the defined standard value
+**9.80665 m/s²**.
+
+### 24.3 What was *not* verified
+
+* S9's slide deck extracts poorly from PDF (symbol fonts), so its equations were
+  read structurally rather than quoted verbatim; the `c*` definition is
+  independently corroborated by the S6 route above, which is the one the code and
+  tests actually rely on.
+* S11's separation criterion was confirmed from a search summary of the DLR/AIAA
+  literature rather than from the primary PDF. It is used **only** as a warning
+  flag, never in any calculation.
+* **No N₂O/HTPB thermochemistry was computed or validated.** `gamma`, `T_c` and
+  the molar mass are prescribed assumptions (§25), not results.
+
+---
+
+## 25. Prescribed combustion properties
+
+### 25.1 Why they are prescribed
+
+Milestone 3 deliberately contains **no equilibrium-chemistry solver and no CEA
+interface**. Computing `c*`, `gamma` and `T_c` from first principles is a
+separate, large piece of work; asserting values without computing them would be
+worse. So they are declared as explicit, clearly labelled assumptions, and their
+influence is quantified (§30).
+
+### 25.2 The selection rule, fixed in advance
+
+Four primitives were chosen **before any thrust was computed** and were not
+adjusted afterwards:
+
+| Primitive | Value | Basis |
+| --- | ---: | --- |
+| `gamma` | 1.20 | round value typical of hot rocket exhaust |
+| `T_c` | 2600 K | round value below the sub-3000 K adiabatic flame temperatures S10 reports for N₂O-based hybrids, reduced because this model runs fuel-rich at O/F ≈ 2–2.5 |
+| Molar mass `M` | 0.022 kg/mol | round value |
+| `eta_c*` | 0.96 | midpoint of the 94–98 % combustion efficiency S1 measured for this propellant pair |
+
+From these, `R = R_u/M = 377.930 J/(kg K)`,
+`c*_ideal = 1528.486 m/s` and the delivered `c* = 0.96 x c*_ideal = 1467.347 m/s`.
+
+### 25.3 Consistency, not validation
+
+The delivered `c*` lands inside the 1403–1587 m/s that S1 measured, and the
+implied chamber pressure (26.11 bar) lands inside the 19.9–31.0 bar S1 measured.
+**Both are weak consistency checks, not validations.** The primitives are round
+numbers and the efficiency is a stated midpoint; nothing was back-solved. Anyone
+can re-derive the chain and confirm no fitting occurred.
+
+`CombustionProperties` exposes `ideal_c_star_m_s` and `c_star_efficiency`
+precisely so that this internal consistency is visible. A prescribed set implying
+`eta_c* > 1` is physically impossible, and §30 shows exactly that happening when
+`c*` is varied alone — which is the point of showing it.
+
+---
+
+## 26. Reference nozzle selection
+
+Documented, and deliberately not optimised.
+
+The throat was chosen by evaluating round candidates at the Milestone 1 total
+mass flow, against the chamber-pressure band S1 measured for a comparable motor:
+
+| `D_t` [mm] | `A_t` [m²] | `p_c` [bar] | Verdict |
+| ---: | ---: | ---: | --- |
+| 8 | 5.026548e-05 | 40.80 | above the 19.9–31.0 bar band |
+| **10** | **7.853982e-05** | **26.11** | **inside the band — chosen** |
+| 12 | 1.130973e-04 | 18.13 | below the band |
+| 15 | 1.767146e-04 | 11.61 | well below the band |
+
+A round 10 mm throat is the only round candidate landing mid-band. The expansion
+ratio was set to a round `epsilon = 4`. Ideal sea-level expansion for this chamber
+pressure would require `epsilon ≈ 4.34`, so the reference nozzle is *slightly*
+underexpanded at sea level — a consequence of choosing a round number, not a
+design decision. No thrust value influenced either choice.
+
+---
+
+## 27. Numerical method
+
+### 27.1 Exit-Mach root solve
+
+The area-Mach relation has a subsonic and a supersonic root for every
+`A/A* > 1`. A choked converging-diverging nozzle running full sits on the
+supersonic branch, where `A/A*` is monotonically increasing in `M`. The solver
+therefore:
+
+1. brackets the root on `[1, M_hi]`, doubling `M_hi` until the residual changes
+   sign (capped at Mach 1e4);
+2. solves with `scipy.optimize.brentq`, which is guaranteed to converge on a
+   sign-changing bracket.
+
+An unbracketed Newton iteration was deliberately **not** used: it can converge
+onto the subsonic branch or diverge at large expansion ratios, and there is no
+reason to accept that risk when a bracket is available for free. `epsilon = 1`
+short-circuits to `M_e = 1` exactly.
+
+Measured behaviour: the area-Mach residual falls to `0` at `xtol = 1e-15`, and
+thrust is unchanged to 6 decimal places from `xtol = 1e-4` downwards (§31).
+
+### 27.2 Transient coupling architecture
+
+The coupling is **one-way and instantaneous**. Each Milestone 2 sample supplies
+`m_dot_ox` and `m_dot_f`; the chamber and nozzle are solved at that state; nothing
+flows back into the regression or port model. Milestone 2's `TransientResult` is
+carried on the `ThrustHistory` unchanged, so mass bookkeeping remains the
+Milestone 2 quantity and is not recomputed.
+
+Because `epsilon` and `gamma` are constant, `M_e` and both isentropic ratios are
+constant; because `T_c` is also constant, `T_e` and `V_e` are constant for an
+entire burn. Only `p_e` moves, in proportion to `p_c`.
+
+---
+
+## 28. Idle / zero-flow behaviour
+
+With `m_dot_ox + m_dot_f = 0` the chamber is reported as `IDLE_NO_FLOW` with
+`p_c = 0`, and:
+
+* thrust is exactly **0** — *not* `-p_a A_e`. Applying the pressure term to a
+  nozzle merely full of still ambient gas would be meaningless; there is no jet.
+* **no exit state is reported at all** (`exit_state is None`, and every exit array
+  in a history is `NaN`), so no nozzle number can be mistaken for a firing
+  condition.
+* `C_F` and `I_sp` are `NaN`, because both are literally `0/0`.
+* the mixture ratio is `NaN` whenever there is no fuel flow, matching the
+  Milestone 2 convention (§18.1).
+
+---
+
+## 29. Thrust decomposition and integrated performance
+
+```
+momentum thrust = m_dot_total V_e
+pressure thrust = (p_e - p_a) A_e
+F               = momentum + pressure          (exactly, as floating-point addition)
+C_F             = F / (p_c A_t)
+I_sp            = F / (m_dot_total g_0),   g_0 = 9.80665 m/s^2
+I_total         = integral F dt              (trapezoidal over the reporting grid)
+I_sp,eq         = I_total / (m_propellant g_0)
+mean thrust     = I_total / (active burn time)
+```
+
+The equivalent specific impulse is preferred over averaging instantaneous `I_sp`
+because it has a clean integral definition and remains well defined when some
+samples are idle. The active burn time is the trapezoidal integral of the firing
+indicator, so a coast is excluded from the mean.
+
+### 29.1 An exact structural identity
+
+Since `p_c ∝ m_dot_total` while `V_e` and `p_e/p_c` are fixed,
+
+```
+F = m_dot_total [ V_e + c* epsilon (p_e/p_c) ] - p_a A_e
+```
+
+Thrust is exactly **affine** in the total mass flow. This is used as a third
+independent verification route (§32) and explains why the thrust history is so
+nearly a scaled copy of the mass-flow history.
+
+---
+
+## 30. Sensitivity methodology
+
+Two deterministic, one-factor-at-a-time studies. Neither is uncertainty
+propagation: no distributions are assumed and no intervals are produced.
+
+**Ambient pressure** is swept at a fixed chamber state. The chamber and the entire
+exit state are unchanged — the nozzle is choked — so only `(p_e - p_a) A_e` moves.
+Sea level to vacuum gains exactly `p_a A_e = 31.832 N`.
+
+**Combustion properties** are varied one at a time with mass flow and nozzle
+geometry held fixed: `c*` by ±10 %, `gamma` over 1.15–1.25, `T_c` by ±10 %. The
+implied `eta_c*` is reported for every variation, which makes visible that varying
+one property alone renders the set internally inconsistent (the `c* +10 %` case
+implies `eta_c* = 1.056`, physically impossible). That is a deliberate disclosure,
+not an oversight.
+
+Because `m_dot` is held fixed, the percentage change in `I_sp` is *identical* to
+that in thrust in every row, so Figure M3-E plots the chamber-pressure response
+instead — which genuinely differs.
+
+---
+
+## 31. Numerical convergence
+
+Root solve (`epsilon = 4`, `gamma = 1.20`):
+
+| `xtol` | `M_e` | Area-Mach residual | `F` [N] |
+| ---: | ---: | ---: | ---: |
+| 1e-04 | 2.619446781721 | 2.683e-08 | 310.047929 |
+| 1e-08 | 2.619446776666 | -1.442e-12 | 310.047929 |
+| 1e-12 | 2.619446776666 | 1.220e-12 | 310.047929 |
+| 1e-15 | 2.619446776666 | 0.000e+00 | 310.047929 |
+
+Transient integration and integrated performance:
+
+| `rtol` | `n_report` | `t_burn` [s] | Peak `F` [N] | `I_total` [N s] | `I_sp,eq` [s] |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1e-05 | 201 | 41.740617467 | 333.528161 | 13525.649028 | 227.103122 |
+| 1e-07 | 401 | 41.740617771 | 333.528161 | 13525.651206 | 227.103159 |
+| 1e-09 | 801 | 41.740617800 | 333.528161 | 13525.651738 | 227.103168 |
+| 1e-11 | 1601 | 41.740617803 | 333.528161 | 13525.651869 | 227.103170 |
+
+Total impulse converges to about 1e-7 relative and the burnout time to the
+Milestone 2 closed-form value. Peak thrust is unchanged to 6 decimals throughout,
+because it is an algebraic function of the burnout radius rather than an integral.
+
+---
+
+## 32. Milestone 3 verification strategy
+
+`tests/test_nozzle.py` (113 tests), `tests/test_chamber.py` (51) and
+`tests/test_performance.py` (51) cover all 40 required checks. Independence
+comes from:
+
+* **A different algebraic arrangement.** The area ratio is rebuilt in the tests in
+  the `[(g+1)/2]^(-k)/M * [...]^k` form printed by S5, while the production code
+  uses the `(2/(g+1))^k` form.
+* **A plain-bisection area-Mach inversion** written in the test file, using no
+  scipy and no production routine.
+* **A full longhand reimplementation** of the chamber → nozzle → thrust chain from
+  `math` primitives, compared field by field against the production result.
+* **Three independent thrust routes** — exit-state, `C_F p_c A_t`, and the affine
+  identity of §29.1 — none of which is used to generate another.
+* **Bypassing the ODE integrator**: transient chamber pressures and thrusts are
+  checked against the Milestone 2 *closed-form* radius solution re-derived in the
+  test file.
+* **Exact identities**: `p_c A_t - m_dot c*` and `F - (momentum + pressure)` must
+  close to machine zero, not to a tolerance.
+* **An independent route to ideal `c*`**: built from the S6 choked mass-flow
+  relation and compared with the closed form.
+
+Measured residuals at the reference point: `|A - B| = 0` N, `|A - C| = 5.7e-14` N,
+`p_c A_t - m_dot c* = 0` N exactly.
+
+Gate before commit: `pytest -W error -q` (501 tests) and `ruff check .`.
+
+---
+
+## 33. Milestone 3 limitations
+
+1. **Oxidizer flow is prescribed and chamber pressure does not feed back into it.**
+   The largest departure from a real motor. A real feed system would deliver less
+   flow as `p_c` rises, damping the very thrust rise this model predicts. Every
+   Milestone 3 thrust history should be read with that in mind.
+2. **`c*`, `gamma` and `T_c` are prescribed constants** that do not vary with O/F,
+   pressure or time. No equilibrium chemistry, no CEA.
+3. **Combustion efficiency is represented solely by the prescribed `c*`.** No other
+   loss mechanism exists anywhere in the model, which is why the predicted `I_sp`
+   (226.2 s) sits above the 167–223 s S1 measured.
+4. **The nozzle is 1-D, steady, adiabatic and isentropic** with a calorically
+   perfect gas: no divergence loss, no boundary layer, no heat transfer, no
+   two-phase flow, no shocks, no separation model, no side loads.
+5. **The Summerfield flag warns but does not correct.** A flagged result is
+   reported as doubtful, not fixed.
+6. **No ignition, chamber-filling or tail-off transient.** The chamber has no gas
+   storage term, so prescribed-flow steps produce instantaneous pressure and
+   thrust steps that no real motor could follow.
+7. **No combustion instability, structural sizing, thermal sizing, nozzle contour,
+   materials or fabrication information.**
+8. **Nothing has been validated against hardware**, and nothing here establishes a
+   safe operating pressure or a flight-ready design.
+
+---
+
+## 34. Deferred physics — still NOT modelled after Milestone 3
+
+Absent from production code: N₂O tank state and thermodynamics, saturation and
+vapour-pressure models, tank blowdown, vapour-liquid equilibrium, injector CdA
+sizing or mass-flow equations, feed-line pressure loss, chamber-to-feed coupling,
+equilibrium chemistry / CEA, combustion instability, ignition transients, nozzle
+contour generation, wall heat transfer, structural or casing stress analysis,
+thermal sizing, and flight dynamics.
+
+### 34.1 One documented change to a prior-milestone script
+
+`scripts/manual_check.py` (Milestone 1) contained a scope guard asserting that no
+chamber-pressure, nozzle or thrust symbol was exported by the package. That was
+the correct boundary for Milestones 1 and 2, and it fired as designed the moment
+Milestone 3 added `NozzleGeometry` and `ThrustHistory`.
+
+This is **not** a defect in Milestone 1 — the guard did exactly its job — so it
+was not "fixed"; it was **retargeted** at the physics that is still deferred
+(§34). The change is confined to the `forbidden` tuple and its printed label, and
+is annotated in place. Every numeric check in that script is untouched and every
+Milestone 1 value it reports is unchanged:
+
+```
+A_port 1.256637061e-03   P_port 1.256637061e-01   A_burn 5.026548246e-02
+m_f    1.899092759e+00   G_ox   7.957747155e+01   r_dot  8.508937503e-04
+m_f    3.977664394e-02   O/F    2.514038141e+00
+```
+
+The boundary is additionally pinned by two permanent tests in
+`tests/test_performance.py`: `test_package_exports_no_deferred_physics`, which
+fails if any deferred-physics token reaches the public API, and
+`test_oxidizer_flow_is_never_derived_from_chamber_pressure`, which fails if the
+one-way coupling is ever reversed.
+
+**Milestone 4 (not started)** would couple chamber pressure back to an N₂O
+feed/injector/tank model, so that the oxidizer flow is no longer externally
+prescribed. That needs properly sourced N₂O property data and two-phase /
+feed-system modelling, with strong scope controls. No part of it exists here.
