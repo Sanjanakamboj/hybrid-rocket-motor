@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editor / OS artefacts
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Reference material (never track downloaded source PDFs)
+*.pdf
+refs/
