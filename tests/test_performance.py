@@ -708,32 +708,35 @@ def test_gamma_changes_the_exit_mach_number():
 # --- permanent scope guard -------------------------------------------------
 
 DEFERRED_PHYSICS_TOKENS = (
-    "tank",
-    "blowdown",
-    "vapour",
-    "vapor",
-    "saturation",
-    "injector",
+    "cea",
+    "equilibrium_chemistry",
+    "instability",
+    "ignition",
+    "contour",
+    "structural",
+    "stress",
+    "thermal_sizing",
+    "flight_dynamics",
     "feedline",
     "feed_line",
-    "feed_system",
-    "cea",
-    "equilibrium",
-    "ignition",
-    "instability",
-    "structural",
-    "contour",
+    "heat_transfer",
 )
 
 
 def test_package_exports_no_deferred_physics():
-    """Milestone 3 may compute chamber pressure, nozzle flow and thrust.
+    """Pins the scope boundary at whatever is still deferred.
 
-    It may NOT compute anything from the deferred list: tank state, blowdown,
-    vapour pressure, injector flow, feed-system losses, equilibrium chemistry,
-    ignition transients, combustion instability, structural sizing or nozzle
-    contours.  This test pins that boundary so a later milestone cannot cross it
-    by accident.
+    Scope-boundary note (Milestone 4).  This guard originally also forbade tank,
+    injector, blowdown, vapour and saturation symbols, which was the correct
+    boundary through Milestone 3.  Milestone 4 was chartered to add exactly
+    those, so the token list was deliberately retargeted at the physics that is
+    STILL deferred.  A documented scope change, not a correction: no prior
+    physics, coefficient or reported value is affected.  See DESIGN.md.
+
+    Still forbidden: equilibrium combustion chemistry / CEA, combustion
+    instability, ignition transients, nozzle contour generation, structural or
+    thermal sizing, feed-line pressure losses, wall heat transfer and flight
+    dynamics.
     """
     import hybrid_rocket_motor as package
 

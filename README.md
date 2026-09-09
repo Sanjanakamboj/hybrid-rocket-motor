@@ -6,10 +6,17 @@ HTPB hybrid rocket motor.
 * **Milestone 1** — instantaneous prescribed-flow regression bookkeeping.
 * **Milestone 2** — transient prescribed-flow port evolution, burnout and mass closure.
 * **Milestone 3** — quasi-steady chamber pressure, 1-D nozzle and **thrust**.
+* **Milestone 4** — coupled N₂O tank, injector and motor: **blowdown**.
 
-Milestone 3 predicts thrust from **prescribed** combustion properties under a
-**prescribed** oxidizer flow. It is not a validated motor, not an optimised
-nozzle, and chamber pressure does not feed back into the oxidizer supply.
+Milestone 4 removes the prescribed oxidizer flow. A saturated-equilibrium N₂O
+tank and a sourced injector model close the loop, so oxidizer flow, chamber
+pressure and thrust are all outputs. Combustion properties remain prescribed and
+nothing has been validated against hardware.
+
+> **The headline result.** Holding the oxidizer flow constant (Milestone 3)
+> predicts thrust **rising** +7.6 % through the burn. With the tank coupled
+> (Milestone 4) it **falls** −8.6 %. The constant-flow assumption gets the *sign*
+> of the thrust-time slope wrong for this configuration.
 
 > **Scope.** This is an educational, reduced-order study. It is **not** a motor
 > design, a fabrication guide, a test procedure, or a flight-hardware model. The
@@ -76,6 +83,78 @@ thermodynamics, vapour–liquid equilibrium, blowdown, injector sizing or
 pressure-drop, feed-line losses, ignition or chamber-filling transient,
 combustion instability, equilibrium chemistry, nozzle contour, shock or
 separation model, or structural/thermal sizing.
+
+## Milestone 4 scope
+
+Milestone 4 makes the oxidizer flow an **output**. Three new physical models are
+solved together with the frozen Milestone 1–3 motor:
+
+* a rigid, adiabatic, **saturated-equilibrium N₂O tank** whose pressure is
+  `p_sat(T)` and whose temperature falls as liquid is withdrawn,
+* an **injector** with three sourced models — incompressible SPI, homogeneous
+  equilibrium HEM, and the Dyer/NHNE blend,
+* a **coupled feed/chamber closure** solved as a bracketed scalar root,
+
+integrated in time with terminal events for grain burnout, liquid depletion,
+tank/chamber pressure equalisation and departure from the checked property band.
+
+**Not modelled, deliberately:** equilibrium combustion chemistry, combustion
+instability, ignition or chamber-filling transients, feed-line pressure losses,
+nozzle contours, shocks or flow separation, structural or thermal sizing, and
+the vapour-only discharge tail after liquid depletion.
+
+### N₂O properties
+
+Properties come from **CoolProp**, whose N₂O equation of state is the short
+fundamental Helmholtz EOS of Lemmon & Span, *J. Chem. Eng. Data* 51 (2006)
+785–850 — the same EOS the NIST Chemistry WebBook cites. No property correlation
+is fitted, invented or transcribed anywhere in this project. The test suite
+checks the module against an independently retrieved NIST WebBook table over
+200–305 K; because NIST cites the same EOS, that verifies **units and call
+structure**, not the EOS itself, and the tests say so.
+
+### Tank model
+
+A rigid, adiabatic, spatially uniform control volume in saturated equilibrium.
+The open-system first law with `Q = 0`, `W = 0` and a saturated-liquid outflow:
+
+```
+dm/dt = −ṁ_out
+dU/dt = −ṁ_out · h_l(T)
+
+V = m_l/ρ_l(T) + m_v/ρ_v(T)     m = m_l + m_v
+U = m_l·u_l(T) + m_v·u_v(T)     p = p_sat(T)
+```
+
+Given the conserved `(m, U)` the temperature follows from one bracketed root
+solve. **Nothing prescribes a pressure-versus-time curve** — the pressure history
+is an output of the energy balance.
+
+### Injector models
+
+All three are taken verbatim from Waxman, Zimmerman, Cantwell (Stanford) and
+Zilliac (NASA Ames), NTRS 20190001326:
+
+```
+SPI   ṁ = C_d A √(2 ρ Δp)                                    their Eq. (2)
+HEM   ṁ = C_d A ρ₂ √(2(h₁ − h₂)),  s₂ = s₁                   their Eqs. (3)–(4)
+κ     = √((p₁ − p₂)/(p_v − p₂))                              their Eq. (8)
+Dyer  ṁ = κ/(1+κ)·ṁ_SPI + 1/(1+κ)·ṁ_HEM                      their Eq. (9)
+```
+
+For a *saturated* tank `p₁ = p_v`, so **κ is exactly 1** and the Dyer model is an
+equal blend of the two limits. Waxman et al. warn that the SPI equation "is often
+applied inappropriately" to nitrous oxide because the liquid flashes in the
+orifice; both models are provided and compared.
+
+### Coupled closure
+
+```
+residual(ṁ_ox) = injector(tank, p_c(ṁ_ox, r_p)) − ṁ_ox = 0
+```
+
+solved by Brent's method on the closed-form bracket `[0, ṁ_SPI(p₂=0)]`. A
+fixed-point iteration is deliberately not used.
 
 ### Chamber mass balance
 
@@ -531,15 +610,131 @@ nozzle with no divergence loss, no boundary layer, no heat loss and no two-phase
 effects, and the `c*` efficiency is the *only* loss represented anywhere in the
 model. The discrepancy is stated rather than absorbed into a fudge factor.
 
+## Milestone 4 representative results
+
+### Reference configuration (illustrative, generic)
+
+| Parameter | Value | Status |
+| --- | ---: | --- |
+| Tank internal volume | 10.00 L | round generic value |
+| Initial temperature | 293.15 K | round generic value |
+| Initial liquid fill | 80 % by volume | round generic value |
+| Initial tank pressure | 50.525 bar | **derived** from `p_sat(293.15 K)` |
+| Initial N₂O mass | 6.5968 kg (6.2808 liquid) | derived |
+| Effective injector area `A_eff` | 3.50 mm² | round, selected as below |
+| Discharge coefficient `C_d` | 0.66 | Dyer et al.'s cross-injector average, quoted by Waxman et al. |
+| Injector model | Dyer / NHNE | sourced |
+
+The grain, regression law, combustion properties and nozzle are the **frozen**
+Milestone 1–3 values, unchanged.
+
+**Effective-area selection** — a comparison convenience, not an injector design.
+`C_d` was fixed at the sourced 0.66 and one parameter, the area, was chosen from
+a short list of round values so the coupled model starts near Milestone 3's
+prescribed 0.100 kg/s. No thrust target was used and no second parameter moved:
+
+| `A_eff` [mm²] | Initial `ṁ_ox` [kg/s] | Initial `p_c` [bar] | Verdict |
+| ---: | ---: | ---: | --- |
+| 2.5 | 0.075123 | 20.727 | outside the 0.08–0.12 band |
+| 3.0 | 0.088644 | 23.671 | inside |
+| **3.5** | **0.101316** | **26.396** | **inside — chosen** |
+| 4.0 | 0.113049 | 28.894 | inside |
+| 4.5 | 0.123791 | 31.164 | outside |
+
+### Reference case (Case A)
+
+| Quantity | At `t = 0` | At termination |
+| --- | ---: | ---: |
+| Tank pressure | 50.525 bar | 38.094 bar |
+| Tank temperature | 293.150 K | 281.117 K |
+| Tank liquid mass | 6.2808 kg | 1.7537 kg |
+| **Oxidizer mass flow** | **0.101316 kg/s** | **0.083946 kg/s** |
+| Fuel mass flow | 0.039968 kg/s | 0.046310 kg/s |
+| Mixture ratio O/F | 2.535 | 1.813 |
+| **Chamber pressure** | **26.396 bar** | **24.335 bar** |
+| Pressure margin | 24.129 bar | 13.759 bar |
+| Port diameter | 40.000 mm | 90.000 mm |
+| **Thrust** | **313.733 N** | **286.756 N** |
+
+Terminates on **grain burnout** at **42.917 s**. Total impulse **13 018.56 N·s**,
+oxidizer consumed 3.982 kg, fuel consumed 1.899 kg, equivalent `I_sp` 225.73 s.
+28 % of the liquid N₂O is still in the tank when the grain burns through.
+
+### Case set
+
+| Case | Variation | Termination | Burn [s] | `ṁ_ox` [kg/s] | Thrust [N] | `I_total` [N·s] | `I_sp,eq` [s] |
+| --- | --- | --- | ---: | --- | --- | ---: | ---: |
+| A | nominal | GRAIN_BURNOUT | 42.92 | 0.1013 → 0.0839 | 313.7 → 286.8 | 13 018.6 | 225.73 |
+| B | tank at 283.15 K | GRAIN_BURNOUT | 44.96 | 0.0886 → 0.0748 | 277.9 → 259.8 | 12 198.7 | 223.22 |
+| C | tank at 303.15 K | GRAIN_BURNOUT | 41.43 | 0.1115 → 0.0914 | 342.2 → 308.4 | 13 679.1 | 227.48 |
+| D | `A_eff` = 2.5 mm² | GRAIN_BURNOUT | 47.41 | 0.0751 → 0.0661 | 239.5 → 233.5 | 11 334.5 | 220.11 |
+| E | `A_eff` = 4.5 mm² | GRAIN_BURNOUT | 40.31 | 0.1238 → 0.0963 | 376.2 → 322.9 | 14 223.6 | 228.78 |
+| F | SPI injector model | GRAIN_BURNOUT | 40.30 | 0.1259 → 0.0952 | 382.0 → 319.7 | 14 233.7 | 228.79 |
+| G | 2.5 L tank | **LIQUID_DEPLETED** | 16.04 | 0.1013 → 0 | 313.7 → 0 | 4 580.4 | 224.40 |
+
+**Thrust falls in every case.** Cases A–F all end on grain burnout — a 10 L tank
+carries far more oxidizer than a 1.9 kg grain can consume, so the tank is never
+the limiting factor. Case G, with a 2.5 L tank, terminates instead on liquid
+depletion after 16.0 s with the port only 61.9 mm across and the grain unburnt.
+Which event ends the burn is a model *outcome*, not an assumption.
+
+### Milestone 3 versus Milestone 4
+
+| Quantity | M3 (prescribed) | M4 (coupled) | Change |
+| --- | ---: | ---: | ---: |
+| Initial `ṁ_ox` [kg/s] | 0.1000 | 0.1013 | +1.32 % |
+| Final `ṁ_ox` [kg/s] | 0.1000 | 0.0839 | **−16.05 %** |
+| Initial `p_c` [bar] | 26.114 | 26.396 | +1.08 % |
+| Final `p_c` [bar] | 27.908 | 24.335 | **−12.80 %** |
+| Initial thrust [N] | 310.05 | 313.73 | +1.19 % |
+| Final thrust [N] | 333.53 | 286.76 | **−14.02 %** |
+| Peak thrust [N] | 333.53 | 313.73 | −5.93 % |
+| Final O/F | 2.025 | 1.813 | −10.49 % |
+| Burn duration [s] | 41.741 | 42.917 | +2.82 % |
+| Total impulse [N·s] | 13 525.65 | 13 018.56 | −3.75 % |
+| Equivalent `I_sp` [s] | 227.10 | 225.73 | −0.61 % |
+
+The integrated quantities differ by only a few percent, but the **shape** of the
+thrust curve is qualitatively different: prescribed flow rises +7.6 %, coupled
+flow falls −8.6 %. Being more coupled does **not** make Milestone 4 validated —
+it makes it a different set of assumptions, none of which has been tested against
+hardware.
+
+### Independent mass and energy audit
+
+| Check | Residual |
+| --- | ---: |
+| Oxidizer drawn from tank vs integrated at injector | **2.2 × 10⁻¹⁵ kg** |
+| Fuel from port geometry vs integrated `ṁ_f` | **7.0 × 10⁻⁸ kg** |
+| Impulse state vs trapezoidal integral of thrust | 9.4 × 10⁻⁴ N·s (7.2 × 10⁻⁸ relative) |
+| Adiabatic tank energy balance | 2.4 × 10⁻² J (**1.7 × 10⁻⁸ relative**) |
+| Feed-coupling root residual | **1.4 × 10⁻¹³ kg/s** |
+
+Each is reconstructed from the reported histories, not read back from the
+solver's own accumulators.
+
+### Convergence
+
+| `rtol` | feed `xtol` | `n_report` | `t_end` [s] | Final `p_tank` [bar] | Final `p_c` [bar] | `I_total` [N·s] |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1e−06 | 1e−09 | 101 | 42.917404 | 38.093597 | 24.335095 | 13 018.5817 |
+| 1e−08 | 1e−12 | 201 | 42.917324 | 38.093619 | 24.335102 | 13 018.5583 |
+| 1e−10 | 1e−12 | 401 | 42.917325 | 38.093618 | 24.335102 | 13 018.5588 |
+| 1e−11 | 1e−14 | 801 | 42.917325 | 38.093618 | 24.335102 | 13 018.5588 |
+
+Termination time converges to 8 significant figures and total impulse to
+7 — the loosest setting differs by 2 × 10⁻⁶ relative in impulse.
+
 ## Installation
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Requires Python ≥ 3.11. Runtime dependencies are `numpy`, `scipy` (the ODE
-solver used by Milestone 2) and `matplotlib`. The `dev` extra installs `pytest`
-and `ruff`, which is everything the verification workflow below needs.
+Requires Python ≥ 3.11. Runtime dependencies are `numpy`, `scipy` (ODE solvers
+and root finders), `CoolProp` (the N₂O equation of state used by Milestone 4)
+and `matplotlib`. The `dev` extra installs `pytest` and `ruff`, which is
+everything the verification workflow below needs.
 
 ## Running the study
 
@@ -573,6 +768,14 @@ sensitivity, convergence and the sanity audit):
 python scripts/thrust_prediction_study.py
 ```
 
+Run the Milestone 4 coupled blowdown study (property and injector audit,
+effective-area calibration, seven cases, the M3-vs-M4 comparison, an independent
+mass/energy audit, convergence and the sanity audit):
+
+```bash
+python scripts/blowdown_thrust_study.py
+```
+
 Regenerate the figures (deterministic — byte-identical on repeated runs within a
 given environment; see note below):
 
@@ -586,6 +789,10 @@ python scripts/generate_m2_figures.py
 
 ```bash
 python scripts/generate_m3_figures.py
+```
+
+```bash
+python scripts/generate_m4_figures.py
 ```
 
 All figure inputs are fixed constants, the Agg backend is forced, every rendering
@@ -602,14 +809,16 @@ pytest -W error -q
 ruff check .
 ```
 
-501 tests (167 Milestone 1, 119 Milestone 2, 215 Milestone 3). Expected values
-are written independently of the production code — independently arranged
-algebra, hand-computed literals, an independent unit-conversion route, all 18
-published `(G_ox, ṙ)` measurements from the source paper's own data table, a
-closed-form transient solution re-derived inside the test file and chained by
-hand across piecewise schedules, and for Milestone 3 a full longhand
-reimplementation of the chamber/nozzle chain including a plain-bisection
-area–Mach inversion that never touches scipy or the production solver.
+712 tests (167 Milestone 1, 119 Milestone 2, 215 Milestone 3, 211 Milestone 4).
+Expected values are written independently of the production code —
+independently arranged algebra, hand-computed literals, an independent
+unit-conversion route, all 18 published `(G_ox, ṙ)` measurements from the source
+paper's own data table, a closed-form transient solution re-derived inside the
+test file, a longhand reimplementation of the chamber/nozzle chain with a
+plain-bisection area–Mach inversion, and for Milestone 4 an independently
+retrieved NIST WebBook property table, CoolProp's own density–internal-energy
+flash as a second route to the tank temperature, hand-written SPI/HEM/Dyer
+formulas, and a plain-bisection re-solve of the coupled feed closure.
 
 ## Figures
 
@@ -642,6 +851,16 @@ Milestone 3:
 | **M3-E** — Prescribed-property sensitivity | [`figures/fig_m3_e_property_sensitivity.png`](figures/fig_m3_e_property_sensitivity.png) |
 | **M3-F** — Piecewise-schedule thrust response | [`figures/fig_m3_f_piecewise_thrust.png`](figures/fig_m3_f_piecewise_thrust.png) |
 
+Milestone 4:
+
+| Figure | File |
+| --- | --- |
+| **M4-A** — Tank blowdown: pressure, temperature, mass | [`figures/fig_m4_a_tank_blowdown.png`](figures/fig_m4_a_tank_blowdown.png) |
+| **M4-B** — Feed coupling: flow and chamber pressure, M3 vs M4 | [`figures/fig_m4_b_feed_coupling.png`](figures/fig_m4_b_feed_coupling.png) |
+| **M4-C** — **Thrust: prescribed vs coupled** | [`figures/fig_m4_c_thrust_comparison.png`](figures/fig_m4_c_thrust_comparison.png) |
+| **M4-D** — Injector characteristics: SPI, HEM, Dyer | [`figures/fig_m4_d_injector_models.png`](figures/fig_m4_d_injector_models.png) |
+| **M4-E** — Parametric cases and conservation closure | [`figures/fig_m4_e_case_comparison.png`](figures/fig_m4_e_case_comparison.png) |
+
 ![Generic hybrid grain geometry](figures/fig_a_grain_geometry.png)
 
 ![Regression rate versus oxidizer mass flux](figures/fig_b_regression_vs_flux.png)
@@ -670,6 +889,16 @@ Milestone 3:
 
 ![Piecewise-schedule thrust response](figures/fig_m3_f_piecewise_thrust.png)
 
+![Tank blowdown](figures/fig_m4_a_tank_blowdown.png)
+
+![Feed coupling](figures/fig_m4_b_feed_coupling.png)
+
+![Thrust: prescribed versus coupled](figures/fig_m4_c_thrust_comparison.png)
+
+![Injector characteristics](figures/fig_m4_d_injector_models.png)
+
+![Parametric cases and closure](figures/fig_m4_e_case_comparison.png)
+
 ## Repository layout
 
 ```
@@ -681,7 +910,12 @@ src/hybrid_rocket_motor/
     nozzle.py            geometry, area-Mach solve, isentropic exit state        [M3]
     chamber.py           prescribed combustion properties, quasi-steady p_c      [M3]
     performance.py       chamber + nozzle coupling, thrust, total impulse        [M3]
-tests/                   independent verification (501 tests)
+    nitrous_properties.py  saturated N2O properties (CoolProp / Lemmon-Span)     [M4]
+    tank.py              rigid adiabatic saturated-equilibrium N2O tank          [M4]
+    injector.py          SPI / HEM / Dyer-NHNE injector flow models              [M4]
+    feed_system.py       coupled injector-chamber-regression root solve          [M4]
+    blowdown.py          coupled time integration with terminal events           [M4]
+tests/                   independent verification (712 tests)
 scripts/
     manual_check.py                longhand arithmetic cross-check + scope guard [M1]
     regression_study.py            the Milestone 1 study and sanity audit        [M1]
@@ -690,7 +924,9 @@ scripts/
     generate_m2_figures.py         deterministic figure generation               [M2]
     thrust_prediction_study.py     the Milestone 3 study, sensitivity and audit  [M3]
     generate_m3_figures.py         deterministic figure generation               [M3]
-figures/                 fourteen PNG figures
+    blowdown_thrust_study.py       the Milestone 4 study, comparison and audit   [M4]
+    generate_m4_figures.py         deterministic figure generation               [M4]
+figures/                 nineteen PNG figures
 DESIGN.md                conventions, source audit, verification strategy
 ```
 
@@ -752,14 +988,48 @@ Additional Milestone 3 limitations:
   and not taken from, nor validated against, any real hardware. Nothing here
   establishes a safe operating pressure.
 
+Additional Milestone 4 limitations:
+
+* **The equilibrium tank model is the simplest defensible closure, and it is
+  known to be imperfect.** Zimmerman (Stanford PhD, 2015) shows experimentally
+  that self-pressurising tanks exhibit an initial transient with rapid pressure
+  fluctuations and bubble nucleation that equilibrium models do not reproduce.
+  The equilibrium model is also reported to over-predict tank pressure and is
+  outperformed by the Zilliac–Karabeyoglu and Casalino–Pastrone models. It is
+  used here because it is a genuine thermodynamic closure rather than a fitted
+  decay curve, and needs saturation properties only.
+* **The tank is adiabatic, uniform and in instantaneous phase equilibrium.** No
+  wall thermal mass, no heat leak, no thermal stratification, no ullage dynamics,
+  no metastable superheat.
+* **The vapour-only discharge tail is not modelled.** A run that empties its
+  liquid terminates there and says so, rather than inventing a gas-blowdown model.
+* **The injector is an effective area only.** `C_d A` is a lumped generic
+  parameter. No hole count, hole diameter, plate geometry or manufacturing
+  information is produced, and `C_d = 0.66` is a literature average for *other*
+  injectors, not a measurement of anything modelled here.
+* **The Dyer/NHNE blend is an empirical correlation**, reported by its authors as
+  accurate to about ±15 % against a limited hot-fire set. This project uses the
+  plain HEM branch at the actual backpressure, not the critical (maximised) HEM
+  value; Waxman et al. note HEM "is not necessarily suitable" beyond the critical
+  pressure drop.
+* **No feed-line pressure loss, no valve dynamics, no injector transient.** The
+  tank connects to the chamber through a single lumped area with no plumbing.
+* **Combustion properties are still prescribed constants** and do not respond to
+  the large O/F excursion the coupling now produces (2.53 → 1.81 in Case A). That
+  is a real inconsistency in the model chain: in reality `c*` and `T_c` would
+  change appreciably over that range.
+* **Being more coupled is not being more validated.** Milestone 4 replaces one
+  assumption with three new ones. None of them has been checked against hardware.
+
 ## Next milestone
 
-**Milestone 4 — couple chamber pressure back to an N₂O feed and injector model**
-(not started): replace the prescribed oxidizer flow with one derived from a tank
-and injector, so that `ṁ_ox` responds to chamber pressure instead of being
-imposed. That requires properly sourced N₂O property data and two-phase / feed
--system modelling, with strong scope controls. Nothing in the current repository
-computes any of that — oxidizer flow remains prescribed throughout.
+**Milestone 5 — O/F-dependent combustion properties** (not started): the most
+glaring inconsistency left in the chain is that `c*`, `γ` and `T_c` are held
+constant while the coupled model now swings O/F from 2.53 to 1.81 over a single
+burn. Replacing those constants with a properly sourced, tabulated O/F dependence
+— and propagating it through the chamber and nozzle — would remove the largest
+remaining unphysical assumption. Nothing in the current repository computes
+combustion chemistry of any kind.
 
 ## License
 

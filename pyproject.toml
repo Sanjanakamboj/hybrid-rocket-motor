@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hybrid-rocket-motor"
-version = "0.3.0"
-description = "Reduced-order N2O/HTPB hybrid rocket motor model: regression rate, transient port evolution, and quasi-steady chamber/nozzle thrust prediction under prescribed oxidizer flow."
+version = "0.4.0"
+description = "Reduced-order N2O/HTPB hybrid rocket motor model: regression rate, transient port evolution, quasi-steady chamber/nozzle thrust, and coupled N2O tank/injector blowdown."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -14,6 +14,7 @@ keywords = ["hybrid-rocket", "regression-rate", "propulsion", "reduced-order-mod
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
+    "CoolProp>=6.4",
     "matplotlib>=3.7",
 ]
 
@@ -42,3 +43,4 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "NPY", "RUF"]
 "scripts/generate_m1_figures.py" = ["RUF001"]
 "scripts/generate_m2_figures.py" = ["RUF001"]
 "scripts/generate_m3_figures.py" = ["RUF001"]
+"scripts/generate_m4_figures.py" = ["RUF001"]
