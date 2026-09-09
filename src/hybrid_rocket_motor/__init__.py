@@ -22,10 +22,18 @@ tank, a sourced injector model (SPI / HEM / Dyer-NHNE) and the Milestone 1-3
 motor are solved as one coupled system, so oxidizer flow, chamber pressure and
 thrust all fall out of a self-pressurising blowdown.
 
-All four milestones deliberately do **not** model equilibrium combustion
+Milestone 5 removes the prescribed combustion properties.  ``c*``, ``gamma``,
+``T_c`` and the molar mass are interpolated from a frozen NASA CEA equilibrium
+table as functions of the instantaneous mixture ratio and chamber pressure, and
+fed back into the coupled solve, so the chemistry and the feed system now move
+each other.  The table is committed, so no chemistry solver is needed at run
+time; regenerating it needs the optional ``cea`` extra.
+
+All five milestones deliberately do **not** model finite-rate combustion
 chemistry, combustion instability, ignition or chamber-filling transients,
 nozzle contours, shocks or flow separation, feed-line pressure losses,
-structural design or thermal design.
+structural design or thermal design.  Equilibrium chemistry gives instantaneous,
+complete reaction; it says nothing about reaction rates.
 """
 
 from __future__ import annotations
@@ -129,11 +137,39 @@ from .transient import (
     simulate_transient,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
+from .thermochemistry import (
+    DEFAULT_C_STAR_EFFICIENCY,
+    TableStatus,
+    ThermochemicalState,
+    ThermochemistryTable,
+    default_table,
+)
+from .variable_blowdown import (
+    VariableBlowdownResult,
+    VariableBlowdownTermination,
+    simulate_variable_blowdown,
+)
+from .variable_chamber import (
+    VariableChamberSolution,
+    VariableChamberStatus,
+    solve_variable_chamber,
+)
+from .variable_feed_system import (
+    VariableFeedSolution,
+    VariableFeedStatus,
+    oxidizer_flow_for_mixture_ratio,
+    solve_variable_feed_coupling,
+)
+from .variable_nozzle import (
+    combustion_properties_from_state,
+    solve_variable_performance_point,
+)
 
 __all__ = [
     "BURNOUT_OVERSHOOT_FRACTION",
     "CHAMBER_PRESSURE_FLOOR_PA",
+    "DEFAULT_C_STAR_EFFICIENCY",
     "DYER_REFERENCE_DISCHARGE_COEFFICIENT",
     "ILLUSTRATIVE_ANCHOR_FLUX_SI",
     "ILLUSTRATIVE_N2O_HTPB_COMBUSTION",
@@ -180,34 +216,50 @@ __all__ = [
     "Provenance",
     "RegressionRateUnit",
     "SaturationState",
+    "TableStatus",
     "TankPhase",
     "TankState",
     "TerminationReason",
+    "ThermochemicalState",
+    "ThermochemistryTable",
     "ThrustHistory",
     "TransientResult",
+    "VariableBlowdownResult",
+    "VariableBlowdownTermination",
+    "VariableChamberSolution",
+    "VariableChamberStatus",
+    "VariableFeedSolution",
+    "VariableFeedStatus",
     "__version__",
     "analytic_constant_flow_burnout_time",
     "analytic_constant_flow_radius",
     "analytic_constant_flow_speed_coefficient",
     "area_mach_ratio",
     "classify_expansion_regime",
+    "combustion_properties_from_state",
     "couple_transient_to_performance",
+    "default_table",
     "fuel_mass_flow",
     "ideal_characteristic_velocity",
     "illustrative_exponent_variant",
     "isentropic_pressure_ratio",
     "isentropic_temperature_ratio",
     "mixture_ratio",
+    "oxidizer_flow_for_mixture_ratio",
     "oxidizer_mass_flux",
     "remaining_fuel_mass_kg",
     "saturated_state",
     "saturation_pressure_pa",
     "simulate_blowdown",
     "simulate_transient",
+    "simulate_variable_blowdown",
     "solve_chamber",
     "solve_feed_coupling",
     "solve_nozzle_exit",
     "solve_performance_point",
     "solve_supersonic_exit_mach",
+    "solve_variable_chamber",
+    "solve_variable_feed_coupling",
+    "solve_variable_performance_point",
     "speed_of_sound",
 ]

@@ -708,8 +708,8 @@ def test_gamma_changes_the_exit_mach_number():
 # --- permanent scope guard -------------------------------------------------
 
 DEFERRED_PHYSICS_TOKENS = (
-    "cea",
-    "equilibrium_chemistry",
+    "finite_rate",
+    "kinetics",
     "instability",
     "ignition",
     "contour",
@@ -726,14 +726,22 @@ DEFERRED_PHYSICS_TOKENS = (
 def test_package_exports_no_deferred_physics():
     """Pins the scope boundary at whatever is still deferred.
 
-    Scope-boundary note (Milestone 4).  This guard originally also forbade tank,
+    Scope-boundary note (Milestones 4 and 5).  This guard originally forbade tank,
     injector, blowdown, vapour and saturation symbols, which was the correct
-    boundary through Milestone 3.  Milestone 4 was chartered to add exactly
-    those, so the token list was deliberately retargeted at the physics that is
-    STILL deferred.  A documented scope change, not a correction: no prior
-    physics, coefficient or reported value is affected.  See DESIGN.md.
+    boundary through Milestone 3; Milestone 4 was chartered to add exactly those,
+    so it was retargeted.  It then forbade CEA and equilibrium-chemistry symbols,
+    which was the correct boundary through Milestone 4; Milestone 5 was chartered
+    to add exactly those, so it is retargeted again.  Each time the token list
+    moves to whatever is STILL deferred.  A documented scope change, not a
+    correction: no prior physics, coefficient or reported value is affected.
+    See DESIGN.md.
 
-    Still forbidden: equilibrium combustion chemistry / CEA, combustion
+    Equilibrium chemistry is now IN scope and deliberately absent from the list
+    below.  What equilibrium buys is instantaneous, complete reaction; what it
+    does not buy is reaction *rates*, which is why finite-rate chemistry and
+    kinetics are added to the forbidden set rather than considered covered.
+
+    Still forbidden: finite-rate combustion chemistry and kinetics, combustion
     instability, ignition transients, nozzle contour generation, structural or
     thermal sizing, feed-line pressure losses, wall heat transfer and flight
     dynamics.

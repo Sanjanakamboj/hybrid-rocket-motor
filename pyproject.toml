@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hybrid-rocket-motor"
-version = "0.4.0"
-description = "Reduced-order N2O/HTPB hybrid rocket motor model: regression rate, transient port evolution, quasi-steady chamber/nozzle thrust, and coupled N2O tank/injector blowdown."
+version = "0.5.0"
+description = "Reduced-order N2O/HTPB hybrid rocket motor model: regression rate, transient port evolution, quasi-steady chamber/nozzle thrust, coupled N2O tank/injector blowdown, and O/F-dependent equilibrium thermochemistry."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -22,6 +22,12 @@ dependencies = [
 dev = [
     "pytest>=7.4",
     "ruff>=0.4",
+]
+# Only needed to REGENERATE the committed thermochemistry table, never to use it.
+# rocketcea wraps the NASA CEA FORTRAN source and needs a Fortran compiler, so it
+# is deliberately kept out of the runtime dependencies: the table is committed.
+cea = [
+    "rocketcea>=1.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -44,3 +50,4 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "NPY", "RUF"]
 "scripts/generate_m2_figures.py" = ["RUF001"]
 "scripts/generate_m3_figures.py" = ["RUF001"]
 "scripts/generate_m4_figures.py" = ["RUF001"]
+"scripts/generate_m5_figures.py" = ["RUF001"]

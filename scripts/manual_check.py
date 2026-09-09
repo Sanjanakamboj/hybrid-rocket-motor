@@ -134,17 +134,22 @@ def main() -> int:
     print()
 
     print("STEP 11 scope guard: confirm no DEFERRED physics is present in the model")
-    # Scope-boundary note (Milestones 3 and 4).
+    # Scope-boundary note (Milestones 3, 4 and 5).
     # This guard originally forbade chamber-pressure, nozzle and thrust symbols
     # (correct through Milestone 2), then tank/injector/blowdown symbols (correct
-    # through Milestone 3). Each milestone was chartered to add exactly what the
+    # through Milestone 3), then CEA and equilibrium-chemistry symbols (correct
+    # through Milestone 4). Each milestone was chartered to add exactly what the
     # guard then forbade, so it is retargeted each time at the physics that is
     # STILL deferred. A documented scope change, not a correction: no Milestone 1
     # physics, coefficient or reported value is affected, and every numeric check
     # above is unchanged. See DESIGN.md.
+    #
+    # Equilibrium chemistry is now in scope. Equilibrium gives instantaneous,
+    # complete reaction; it does not give reaction RATES, so finite-rate chemistry
+    # and kinetics join the forbidden set rather than being treated as covered.
     forbidden = (
-        "cea",
-        "equilibrium_chemistry",
+        "finite_rate",
+        "kinetics",
         "instability",
         "ignition",
         "contour",
@@ -163,7 +168,7 @@ def main() -> int:
     clean = not leaked
     verdict = "OK  " if clean else "FAIL"
     print(
-        f"  [{verdict}] no equilibrium-chemistry / ignition / structural / thermal "
+        f"  [{verdict}] no finite-rate / ignition / structural / thermal "
         "symbol exported"
     )
     if leaked:

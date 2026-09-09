@@ -7,16 +7,26 @@ HTPB hybrid rocket motor.
 * **Milestone 2** — transient prescribed-flow port evolution, burnout and mass closure.
 * **Milestone 3** — quasi-steady chamber pressure, 1-D nozzle and **thrust**.
 * **Milestone 4** — coupled N₂O tank, injector and motor: **blowdown**.
+* **Milestone 5** — O/F-dependent **equilibrium thermochemistry** from NASA CEA.
 
-Milestone 4 removes the prescribed oxidizer flow. A saturated-equilibrium N₂O
-tank and a sourced injector model close the loop, so oxidizer flow, chamber
-pressure and thrust are all outputs. Combustion properties remain prescribed and
-nothing has been validated against hardware.
+Milestone 5 removes the last prescribed combustion assumption. `c*`, `γ`, `T_c`
+and the molar mass are interpolated from a frozen NASA CEA equilibrium table at
+the *instantaneous* mixture ratio and chamber pressure, and fed back into the
+coupled solve — so the chemistry and the feed system now move each other. Nothing
+has been validated against hardware.
 
-> **The headline result.** Holding the oxidizer flow constant (Milestone 3)
-> predicts thrust **rising** +7.6 % through the burn. With the tank coupled
-> (Milestone 4) it **falls** −8.6 %. The constant-flow assumption gets the *sign*
-> of the thrust-time slope wrong for this configuration.
+> **The Milestone 4 headline result.** Holding the oxidizer flow constant
+> (Milestone 3) predicts thrust **rising** +7.6 % through the burn. With the tank
+> coupled (Milestone 4) it **falls** −8.6 %. The constant-flow assumption gets the
+> *sign* of the thrust-time slope wrong for this configuration.
+
+> **The Milestone 5 headline result.** Letting the chemistry vary does **not**
+> overturn that sign — it deepens it. The same burn now falls **−12.9 %**, about
+> 1.5× the frozen-property decay, and the whole thrust curve drops with it
+> (−10.7 % total impulse). The mechanism is new: as the port opens the mixture
+> ratio falls, and on the fuel-rich side of the CEA table a falling O/F drags `c*`
+> down with it. In Milestone 4 that channel did not exist, because `c*` was a
+> constant. The tank and the chemistry now decay together.
 
 > **Scope.** This is an educational, reduced-order study. It is **not** a motor
 > design, a fabrication guide, a test procedure, or a flight-hardware model. The
@@ -201,6 +211,50 @@ solver and no CEA interface anywhere in this repository.
 The model exposes `ideal_c_star_m_s` and `c_star_efficiency` so that the internal
 consistency of any prescribed set is visible rather than hidden.
 
+### O/F-dependent combustion properties — SOURCED equilibrium chemistry
+
+Milestone 5 replaces the four constants above with a lookup at the instantaneous
+operating point:
+
+```
+c*_ideal, γ, T_c, M  =  CEA_equilibrium(O/F, p_c)      bilinear interpolation
+c*_delivered         =  η_c* · c*_ideal                 η_c* = 0.96, applied once
+R                    =  R_u / M                         recomputed, not interpolated
+```
+
+Provenance is **SOURCED**, not illustrative: the numbers come from NASA CEA
+(Gordon & McBride, RP-1311) run through the `rocketcea` wrapper, with CEA's own
+`N2O` and `HTPB` reactant cards quoted verbatim in the committed CSV header. No
+HTPB formula was invented and no table was hand-transcribed. Sourced still does
+**not** mean validated against a firing.
+
+Two details carry most of the numerical weight:
+
+* **`M, (1/n)`, not `MW`.** Where equilibrium produces condensed carbon, CEA
+  prints a gas-phase mean molecular weight *and* a total-mass-per-mole-of-gas.
+  A single-gas nozzle model needs the latter — the one that reproduces CEA's own
+  sound speed, `M = γ R_u T / a²`. At the reference point the effective molar mass
+  is 21.057 g/mol against a gas-phase 19.543 g/mol, 7.75 % higher; taking the
+  gas-phase number instead would inflate `R`, `c*` and thrust. See
+  [DESIGN.md](DESIGN.md) §50.
+* **`R` is recomputed from `M`,** not interpolated alongside it, so the identity
+  `R = R_u / M` holds exactly between nodes and not merely at them.
+
+At the Milestone 1/3 reference flows (O/F = 2.514) the sourced properties are
+markedly less favourable than the illustrative constants they replace:
+
+| Property | M3 prescribed | M5 CEA table | Change |
+| --- | --- | --- | --- |
+| ideal `c*` [m/s] | 1528.49 | 1408.64 | **−7.84 %** |
+| `γ` [-] | 1.20000 | 1.23201 | +2.67 % |
+| `T_c` [K] | 2600.0 | 2172.4 | **−16.45 %** |
+| molar mass [g/mol] | 22.000 | 21.057 | −4.29 % |
+| `R` [J/(kg K)] | 377.93 | 394.86 | +4.48 % |
+
+The Milestone 3 constants were **optimistic**. They were round illustrative
+values, chosen before any chemistry was run and never tuned to the table; the
+table has likewise not been retuned to reproduce them.
+
 ### Reference nozzle — illustrative, documented, not optimised
 
 | Parameter | Value |
@@ -251,6 +305,34 @@ For `n = 0.5` this collapses to `D²` linear in `t`, matching the exact solution
 published by Karabeyoglu, Cantwell & Zilliac (2007) for that special case. The
 closed form is the primary reference the numerical solver is verified against —
 the tests never use the solver to generate their own expected answer.
+
+## Milestone 5 scope
+
+Milestone 5 makes the combustion properties an **output** of the mixture ratio
+rather than a prescribed constant:
+
+* a **frozen NASA CEA equilibrium table** (Gordon & McBride, NASA RP-1311, run
+  through the `rocketcea` wrapper) covering O/F 1.20–4.00 and 10–45 bar,
+  committed to the repository so no chemistry solver is needed at run time,
+* **bilinear interpolation** — deliberately not a spline, because the products
+  step sharply at the soot boundary and a spline would overshoot there,
+* an **implicit chamber closure**, because `c*` now depends on the pressure it
+  helps set: `p_c = ṁ c*(O/F, p_c) / A_t`,
+* a **nested coupled solve** — an outer bracketed root on the feed residual, an
+  inner bracketed root on chamber pressure — with no fixed-point iteration
+  anywhere,
+* **explicit refusal to extrapolate**: outside the tabulated rectangle the solver
+  fails with a named status and the integration stops. The mixture ratio is never
+  clipped into the table and the chamber pressure is never clamped to an edge.
+
+The Milestone 3 nozzle is reused **verbatim**; only the properties handed to it
+have changed. Milestone 4 is untouched and is re-run as the controlled comparison.
+
+**Not modelled, deliberately:** finite-rate combustion chemistry and kinetics
+(equilibrium buys instantaneous, complete reaction — it says nothing about
+*rates*), combustion instability, ignition or chamber-filling transients,
+feed-line pressure losses, nozzle contours, shocks or flow separation, structural
+or thermal sizing, and the vapour-only discharge tail after liquid depletion.
 
 ## Model chain
 
@@ -725,6 +807,180 @@ solver's own accumulators.
 Termination time converges to 8 significant figures and total impulse to
 7 — the loosest setting differs by 2 × 10⁻⁶ relative in impulse.
 
+## Milestone 5 representative results
+
+### Static reference comparison — the chemistry alone
+
+At the Milestone 1/3 prescribed flows (`ṁ_ox` = 0.100 kg/s, `ṁ_f` = 0.039776644
+kg/s), with no feed coupling at all, so this isolates the chemistry:
+
+| Quantity | M3 frozen | M5 CEA table | Change |
+| --- | --- | --- | --- |
+| `p_c` [bar] | 26.114 | 24.067 | −7.84 % |
+| exit Mach [-] | 2.6194 | 2.6679 | +1.85 % |
+| `p_e` [kPa] | 113.63 | 98.44 | −13.37 % |
+| `V_e` [m/s] | 2190.5 | 2029.8 | −7.34 % |
+| thrust [N] | 310.05 | 282.82 | −8.78 % |
+| `C_F` [-] | 1.5117 | 1.4962 | −1.02 % |
+| `I_sp` [s] | 226.19 | 206.32 | −8.78 % |
+
+Two channels act, and they are not the same channel:
+
+* the **lower `c*`** lowers chamber pressure, which lowers thrust;
+* the **higher `γ`** raises the exit Mach number at the *same* area ratio, which
+  lowers the exit pressure and changes the pressure-thrust term.
+
+The chamber-solve residual is 4.7 × 10⁻¹⁰ Pa, and the frozen Milestone 3 nozzle
+code is reused unmodified — only the properties handed to it changed.
+
+### Reference case (Case A), coupled
+
+| Quantity | M4 frozen | M5 variable | Change |
+| --- | --- | --- | --- |
+| burn time [s] | 42.917 | 42.522 | −0.92 % |
+| total impulse [N s] | 13018.6 | 11627.0 | **−10.69 %** |
+| mean thrust [N] | 303.34 | 273.44 | −9.86 % |
+| peak thrust [N] | 313.73 | 290.76 | −7.32 % |
+| final thrust [N] | 286.76 | 253.21 | −11.70 % |
+| equivalent `I_sp` [s] | 225.73 | 199.45 | −11.64 % |
+| oxidizer consumed [kg] | 3.9821 | 4.0454 | +1.59 % |
+| fuel consumed [kg] | 1.8991 | 1.8991 | 0.00 % |
+| **thrust change over the burn** | **−8.60 %** | **−12.92 %** | 1.50× |
+
+Both runs terminate on grain burnout, so the fuel consumed is identical — it is
+set by geometry, not by chemistry. The oxidizer consumed *rises*, because the
+lower chamber pressure lets the injector pass more.
+
+Over the burn the chemistry moves as the port opens:
+
+| | start | end |
+| --- | --- | --- |
+| O/F [-] | 2.557 | 1.856 |
+| `p_c` [bar] | 24.671 | 21.846 |
+| delivered `c*` [m/s] | 1356.2 | 1279.8 |
+| `γ` [-] | 1.23163 | 1.23490 |
+| `T_c` [K] | 2186.0 | 1925.8 |
+
+`γ` barely moves over this range, so the extra decay is almost entirely a `c*`
+effect acting through chamber pressure.
+
+### Case set
+
+Every case is run **twice on identical conditions** — once with the frozen
+Milestone 4 model, once with the Milestone 5 table — so each row differs only by
+the combustion properties.
+
+| Case | Configuration | M4 impulse [N s] | M5 impulse [N s] | Change | M4 decay | M5 decay |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | nominal | 13018.6 | 11627.0 | −10.69 % | −8.60 % | −12.92 % |
+| B | tank at 283.15 K | 12198.7 | 10772.8 | −11.69 % | −6.52 % | −10.57 % |
+| C | tank at 303.15 K | 13679.1 | 12323.9 | −9.91 % | −9.86 % | −14.29 % |
+| D | injector 2.5 mm² | 11334.5 | 9649.8 | −14.86 % | −2.49 % | −7.56 % |
+| E | injector 4.5 mm² | 14223.6 | 13078.4 | −8.05 % | −14.15 % | −17.81 % |
+| G | 2.5 L tank | 4580.4 | 4061.2 | −11.34 % | — | — |
+
+Case F is the frozen Milestone 4 model itself — the M4 column of every row. It is
+preserved unchanged as the controlled comparison, not re-derived or re-tuned.
+
+Every case loses impulse, and every grain-limited case decays more steeply. The
+effect is largest for the small injector (Case D, −14.9 %), which runs at the
+lowest chamber pressure and hence the lowest O/F, furthest down the fuel-rich side
+of the table. Cases A–E terminate on grain burnout; Case G, with a 2.5 L tank,
+terminates on liquid depletion, so both terminal branches are exercised.
+
+**Every case stayed strictly inside the tabulated rectangle.** No run approached
+an O/F or pressure edge, so no result depends on the table's boundary behaviour.
+
+### Does variable chemistry overturn the Milestone 4 result?
+
+No — it deepens it. Milestone 4's finding was that thrust *falls* over the burn
+even though the port is opening up, because the tank blows down faster than the
+growing burning area can compensate. Milestone 5 keeps the sign and multiplies the
+magnitude by 1.50 in Case A.
+
+The mechanism is genuinely new. In Milestone 4 the only decay channel was the
+tank, because `c*` was a constant. Here the falling mixture ratio drags `c*` down
+with it, and the two effects add. Separately, the whole curve sits **lower**,
+because the equilibrium `c*` at this motor's mixture ratio is below the
+illustrative constant Milestone 3 prescribed. Level and slope are separate
+findings and are reported separately.
+
+### Sensitivity
+
+**`c*` efficiency** — swept 0.92 → 1.00:
+
+| `η_c*` | total impulse [N s] | mean thrust [N] | burn time [s] |
+| --- | --- | --- | --- |
+| 0.92 | 11632.4 | 274.34 | 42.402 |
+| 0.94 | 11630.1 | 273.90 | 42.461 |
+| 0.96 | 11627.0 | 273.44 | 42.522 |
+| 0.98 | 11623.2 | 272.95 | 42.584 |
+| 1.00 | 11618.6 | 272.43 | 42.648 |
+
+Total impulse barely moves — about 0.1 % across an 8.7 % change in `η_c*` — and it
+moves *downwards* as `η` rises. That is a property of the coupling, not of the
+chemistry: a higher `c*` raises chamber pressure (23.78 → 25.54 bar), which cuts
+the pressure drop the injector sees so the oxidizer flow falls (0.10334 → 0.10203
+kg/s), while the grain-limited burn fixes the fuel mass. The pressure-fed system
+self-compensates and what is left is a slightly longer, slightly softer burn.
+
+So `η_c*` is far less consequential for total impulse than its size suggests — but
+it still moves chamber pressure by ~7 %, which is what any pressure-driven
+conclusion would rest on.
+
+**Interpolation grid resolution** — coarser tables built by taking every n-th node
+of the committed table, so the coarse nodes are an exact subset of the same CEA
+solutions and the difference is pure interpolation error:
+
+| O/F step | `p_c` step [bar] | nodes | total impulse [N s] | vs full |
+| --- | --- | --- | --- | --- |
+| 0.025 | 2.5 | 1695 | 11627.03 | — |
+| 0.050 | 2.5 | 855 | 11626.97 | −0.0005 % |
+| 0.100 | 5.0 | 232 | 11626.74 | −0.0025 % |
+| 0.200 | 10.0 | 75 | 11625.77 | −0.0109 % |
+| 0.400 | 17.5 | 24 | 11622.61 | −0.0380 % |
+
+The error falls monotonically and is already below 0.04 % on the coarsest grid
+tried. The committed resolution is far finer than the answer needs, deliberately:
+the table is generated once and costs nothing at run time.
+
+**2-D table vs O/F-only interpolation** — freezing every property at 25 bar and
+keeping only the mixture-ratio dependence changes total impulse by +0.003 %. Across
+the whole tabulated span (10 → 45 bar) the ideal `c*` at O/F 2.5 moves only
++0.029 %, so this is expected rather than surprising. The second dimension was
+tabulated anyway: it costs nothing at run time and it lets the chamber closure be
+solved implicitly in `p_c` rather than assumed independent of it.
+
+**Equilibrium vs frozen nozzle chemistry** — CEA's frozen option converged at 19
+of 29 sampled O/F points. It **failed to converge over O/F 2.10–3.00**, where
+condensed carbon is present, and that band straddles this motor's operating range.
+That non-convergence is reported rather than worked around: no frozen number is
+invented where the solver could not produce one. Where it did converge, frozen
+vacuum `I_sp` is −1.40 % to −0.29 % relative to equilibrium (mean −0.80 %).
+Bracketing the operating band from both sides, the expansion-chemistry assumption
+is worth roughly 1 % in `I_sp` — an order of magnitude smaller than the 8–12 % the
+property change is worth, but not negligible, and it is **not** modelled here.
+
+### Independent verification
+
+Every residual below is zero in exact arithmetic and is re-formed from the
+reported histories rather than read back from the solver:
+
+| Case | ox mass [kg] | fuel mass [kg] | `c*` identity [Pa] | O/F identity | feed [kg/s] | impulse |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | 4.7e−15 | 5.1e−07 | 9.3e−10 | 0.0 | 3.1e−13 | 4.3e−08 |
+| B | 1.0e−14 | 4.0e−07 | 9.3e−10 | 0.0 | 3.1e−13 | 1.4e−08 |
+| C | 4.4e−15 | 5.7e−07 | 9.3e−10 | 0.0 | 2.8e−13 | 7.6e−08 |
+| D | 4.4e−15 | 3.2e−07 | 7.0e−10 | 0.0 | 1.6e−13 | 2.5e−08 |
+| E | 4.9e−15 | 1.5e−08 | 9.3e−10 | 0.0 | 2.7e−13 | 3.1e−08 |
+| G | 1.0e−15 | 4.0e−08 | 9.3e−10 | 0.0 | 3.0e−13 | 1.1e−03 |
+
+The mixture-ratio identity holds **exactly** — the reported O/F is the same float
+as `ṁ_ox / ṁ_f`. Case G's impulse residual is large because that run ends on
+liquid depletion, where thrust steps discontinuously to zero and a trapezoidal
+reconstruction cannot represent the step; the integrator's own impulse state is
+the accurate quantity, as documented for Milestone 4.
+
 ## Installation
 
 ```bash
@@ -735,6 +991,16 @@ Requires Python ≥ 3.11. Runtime dependencies are `numpy`, `scipy` (ODE solvers
 and root finders), `CoolProp` (the N₂O equation of state used by Milestone 4)
 and `matplotlib`. The `dev` extra installs `pytest` and `ruff`, which is
 everything the verification workflow below needs.
+
+The Milestone 5 thermochemistry table is **committed**, so using it needs nothing
+extra. Only *regenerating* it needs NASA CEA:
+
+```bash
+pip install -e ".[cea]"
+```
+
+`rocketcea` wraps the CEA FORTRAN source and needs a Fortran compiler, which is
+exactly why it is an optional extra rather than a runtime dependency.
 
 ## Running the study
 
@@ -776,6 +1042,21 @@ mass/energy audit, convergence and the sanity audit):
 python scripts/blowdown_thrust_study.py
 ```
 
+Run the Milestone 5 O/F-dependent thermochemistry study (table provenance, the
+M3-vs-M5 property and static comparison, six cases each run under both models, the
+four sensitivities and the closure audit):
+
+```bash
+python scripts/variable_thermochemistry_study.py
+```
+
+Regenerate the committed CEA table and prove the committed copy is what the
+current generator produces (needs the optional `cea` extra):
+
+```bash
+python scripts/generate_thermochemistry_table.py --check
+```
+
 Regenerate the figures (deterministic — byte-identical on repeated runs within a
 given environment; see note below):
 
@@ -795,6 +1076,10 @@ python scripts/generate_m3_figures.py
 python scripts/generate_m4_figures.py
 ```
 
+```bash
+python scripts/generate_m5_figures.py
+```
+
 All figure inputs are fixed constants, the Agg backend is forced, every rendering
 rcParam is pinned and no timestamp metadata is written, so repeated runs produce
 byte-identical PNGs. Hashes are **not** expected to match across environments with
@@ -809,7 +1094,8 @@ pytest -W error -q
 ruff check .
 ```
 
-712 tests (167 Milestone 1, 119 Milestone 2, 215 Milestone 3, 211 Milestone 4).
+854 tests (167 Milestone 1, 119 Milestone 2, 215 Milestone 3, 211 Milestone 4,
+142 Milestone 5).
 Expected values are written independently of the production code —
 independently arranged algebra, hand-computed literals, an independent
 unit-conversion route, all 18 published `(G_ox, ṙ)` measurements from the source
@@ -819,6 +1105,16 @@ plain-bisection area–Mach inversion, and for Milestone 4 an independently
 retrieved NIST WebBook property table, CoolProp's own density–internal-energy
 flash as a second route to the tank temperature, hand-written SPI/HEM/Dyer
 formulas, and a plain-bisection re-solve of the coupled feed closure.
+
+For Milestone 5 the committed CSV is re-parsed with the standard library rather
+than the package loader; `R = R_u / M` and the ideal-`c*` relation are re-derived
+from the raw columns; the implicit chamber closure is re-solved by an independent
+scan-plus-secant method; all six coupled feed relations are re-formed from the
+frozen Milestone 1–4 components; the closed-form O/F inversion is round-tripped
+through the forward regression chain; blowdown closures are rebuilt from the
+reported histories; sampled states are re-solved from scratch with the static
+solver; and the frozen Milestone 4 model is re-run in the same session and
+asserted to give its own unchanged answer.
 
 ## Figures
 
@@ -899,6 +1195,16 @@ Milestone 4:
 
 ![Parametric cases and closure](figures/fig_m4_e_case_comparison.png)
 
+Milestone 5:
+
+| Figure | File |
+| --- | --- |
+| **M5-A** — CEA equilibrium properties vs O/F, with the M3 constants | [`figures/fig_m5_a_thermochemistry_table.png`](figures/fig_m5_a_thermochemistry_table.png) |
+| **M5-B** — Coupled thrust and impulse, M4 vs M5 | [`figures/fig_m5_b_thrust_comparison.png`](figures/fig_m5_b_thrust_comparison.png) |
+| **M5-C** — What the chemistry does during a burn | [`figures/fig_m5_c_property_histories.png`](figures/fig_m5_c_property_histories.png) |
+| **M5-D** — The case set and its closure residuals | [`figures/fig_m5_d_case_comparison.png`](figures/fig_m5_d_case_comparison.png) |
+| **M5-E** — Efficiency, grid resolution and expansion chemistry | [`figures/fig_m5_e_sensitivities.png`](figures/fig_m5_e_sensitivities.png) |
+
 ## Repository layout
 
 ```
@@ -915,7 +1221,16 @@ src/hybrid_rocket_motor/
     injector.py          SPI / HEM / Dyer-NHNE injector flow models              [M4]
     feed_system.py       coupled injector-chamber-regression root solve          [M4]
     blowdown.py          coupled time integration with terminal events           [M4]
-tests/                   independent verification (712 tests)
+    thermochemistry.py   frozen CEA table, bilinear interpolation, refusal       [M5]
+    variable_chamber.py  implicit p_c = ṁ c*(O/F, p_c) / A_t closure             [M5]
+    variable_feed_system.py  nested feed / chemistry root solve                  [M5]
+    variable_nozzle.py   adapter driving the frozen M3 nozzle from the table     [M5]
+    variable_blowdown.py coupled integration with table-validity events          [M5]
+data/
+    n2o_htpb_equilibrium.csv           1695 CEA points, committed, no timestamp  [M5]
+    n2o_htpb_equilibrium_metadata.json solver and version provenance             [M5]
+    n2o_htpb_nozzle_chemistry.csv      equilibrium vs frozen expansion           [M5]
+tests/                   independent verification (854 tests)
 scripts/
     manual_check.py                longhand arithmetic cross-check + scope guard [M1]
     regression_study.py            the Milestone 1 study and sanity audit        [M1]
@@ -926,7 +1241,10 @@ scripts/
     generate_m3_figures.py         deterministic figure generation               [M3]
     blowdown_thrust_study.py       the Milestone 4 study, comparison and audit   [M4]
     generate_m4_figures.py         deterministic figure generation               [M4]
-figures/                 nineteen PNG figures
+    generate_thermochemistry_table.py  one-time CEA table generation (needs CEA) [M5]
+    variable_thermochemistry_study.py  the Milestone 5 study, sensitivity, audit [M5]
+    generate_m5_figures.py         deterministic figure generation               [M5]
+figures/                 twenty-four PNG figures
 DESIGN.md                conventions, source audit, verification strategy
 ```
 
@@ -1014,22 +1332,53 @@ Additional Milestone 4 limitations:
   pressure drop.
 * **No feed-line pressure loss, no valve dynamics, no injector transient.** The
   tank connects to the chamber through a single lumped area with no plumbing.
-* **Combustion properties are still prescribed constants** and do not respond to
-  the large O/F excursion the coupling now produces (2.53 → 1.81 in Case A). That
-  is a real inconsistency in the model chain: in reality `c*` and `T_c` would
-  change appreciably over that range.
+* **Combustion properties were still prescribed constants at Milestone 4** and did
+  not respond to the large O/F excursion the coupling produces (2.53 → 1.81 in
+  Case A). **Milestone 5 removes this limitation** and quantifies what it was
+  worth: −10.7 % total impulse and a 1.5× deeper thrust decay.
 * **Being more coupled is not being more validated.** Milestone 4 replaces one
   assumption with three new ones. None of them has been checked against hardware.
 
+Milestone 5 adds its own:
+
+* **Equilibrium is not kinetics.** The table assumes reaction is instantaneous and
+  complete at every instant. Real hybrids have finite-rate chemistry, incomplete
+  mixing and a diffusion flame that does not reach equilibrium everywhere. Nothing
+  here models reaction rates.
+* **One `η_c*` stands in for every combustion loss** — mixing, incomplete
+  combustion, heat loss, residence time — and it is not measured. It is the
+  largest unvalidated number left in the chain. Notably it barely moves total
+  impulse (§ Sensitivity), but it moves chamber pressure by ~7 %.
+* **The nozzle expands with a single chamber `γ`.** That sits between CEA's
+  shifting and frozen limits, and CEA cannot even run the frozen case across
+  O/F 2.10–3.00 because of condensed carbon — a band that straddles this motor's
+  operating range. The assumption is worth roughly 1 % in `I_sp` where it can be
+  measured at all.
+* **Condensed carbon is carried as mass, not as a phase.** Soot contributes to the
+  effective molar mass but there is no two-phase flow, no particle lag and no
+  particulate drag in the nozzle.
+* **The table is a rectangle, and the model refuses to leave it.** That is a
+  deliberate safety property, not a physical statement: a configuration whose O/F
+  or chamber pressure leaves the tabulated span simply stops, and would need the
+  table regenerated over a wider range.
+
 ## Next milestone
 
-**Milestone 5 — O/F-dependent combustion properties** (not started): the most
-glaring inconsistency left in the chain is that `c*`, `γ` and `T_c` are held
-constant while the coupled model now swings O/F from 2.53 to 1.81 over a single
-burn. Replacing those constants with a properly sourced, tabulated O/F dependence
-— and propagating it through the chamber and nozzle — would remove the largest
-remaining unphysical assumption. Nothing in the current repository computes
-combustion chemistry of any kind.
+**Milestone 6 (not started).** With the chemistry now responding to the operating
+point, the largest remaining gaps are no longer about *what* the products are but
+about *how fast* and *how completely* they form, and about what the model still
+refuses to look at:
+
+* **combustion efficiency as physics rather than a constant** — `η_c*` is one
+  unmeasured number standing in for mixing, residence time and heat loss, and it
+  is the single largest unvalidated quantity left;
+* **the vapour-only discharge tail**, still unmodelled: runs that deplete their
+  liquid stop rather than continuing on vapour blowdown;
+* **ignition and chamber-filling transients**, still absent at both ends of every
+  burn.
+
+Nothing in the current repository models reaction rates, ignition, instability,
+nozzle contours, structures or thermal response.
 
 ## License
 

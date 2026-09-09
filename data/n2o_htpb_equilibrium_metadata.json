@@ -1,0 +1,22 @@
+{
+  "generator": "scripts/generate_thermochemistry_table.py",
+  "solver": "NASA CEA via rocketcea",
+  "rocketcea_version": "1.2.3",
+  "python_version": "3.14.5",
+  "generated_utc": "2026-09-09",
+  "oxidizer_card": "N2O",
+  "fuel_card": "HTPB",
+  "of_grid": {
+    "min": 1.2,
+    "max": 4.0,
+    "step": 0.025
+  },
+  "chamber_pressure_grid_bar": {
+    "min": 10.0,
+    "max": 45.0,
+    "step": 2.5
+  },
+  "row_count": 1695,
+  "cstar_convention": "ideal equilibrium; combustion efficiency applied downstream",
+  "note": "This metadata file carries the generation date and tool versions and therefore changes on regeneration. The CSV itself contains no timestamp and regenerates byte-identically."
+}

@@ -1769,3 +1769,343 @@ coefficient or reported value is affected, and every numeric check in
 **Milestone 5 (not started)** would replace the prescribed constant `c*`, `gamma`
 and `T_c` with a properly sourced O/F dependence, removing the largest remaining
 unphysical assumption in the chain.
+
+---
+
+# Part V — Milestone 5
+
+O/F-dependent equilibrium thermochemistry. The combustion properties stop being
+inputs.
+
+---
+
+## 47. Source audit for the thermochemistry
+
+### 47.1 What was consulted
+
+| # | Source | Used for | Access |
+| --- | --- | --- | --- |
+| 1 | Gordon, S. & McBride, B. J., *Computer Program for Calculation of Complex Chemical Equilibrium Compositions and Applications*, NASA RP-1311 (1994/1996) | The equilibrium formulation itself: the Gibbs-minimisation method, the rocket-problem options, and the definitions of the printed quantities | Public (NASA NTRS) |
+| 2 | `rocketcea` (C. Carmichael), a maintained Python wrapper around the NASA CEA FORTRAN source | Running RP-1311's solver reproducibly from a script | Public (PyPI, open source) |
+| 3 | CEA's built-in `N2O` and `HTPB` reactant cards | The propellant definitions, quoted verbatim into the committed CSV header | Ships with the solver |
+| 4 | ESDU 91022, *Equilibrium composition and properties of combustion products* | Considered as a tabulated-data fallback | **Paywalled — not used** |
+
+### 47.2 The decision, and what was rejected
+
+The milestone brief set a hierarchy: (A) run NASA CEA reproducibly, (B) use a
+documented CEA wrapper, (C) transcribe peer-reviewed tabulated data, (D) only if
+A–C fail, an explicitly labelled illustrative table.
+
+We landed on **A via B** — the actual NASA solver, driven by a documented open
+wrapper — which is the strongest option available. Nothing was transcribed by
+hand and no illustrative table was invented.
+
+ESDU 91022 was considered and **rejected**: it is paywalled, so transcribing
+numbers from it would have produced a table that no reader of this repository
+could check. Running the solver ourselves produces a table anyone can regenerate.
+
+**No HTPB chemical formula was invented.** The fuel is CEA's own `HTPB` card,
+`R-45(HTPB FROM_RPL_DATA)`, reproduced verbatim in the CSV header along with its
+enthalpy of formation, reference temperature and density, so the reader can see
+exactly which HTPB was burned without trusting a formula quoted in prose.
+
+## 48. Why the table is committed rather than computed
+
+`rocketcea` wraps FORTRAN and needs a Fortran compiler to install. Making it a
+runtime dependency would mean that running this project's studies required a
+toolchain most readers do not have, and that results depended on a build that is
+awkward to pin.
+
+So the table is generated **once**, by `scripts/generate_thermochemistry_table.py`,
+and committed as `data/n2o_htpb_equilibrium.csv`. The runtime package reads the
+CSV and interpolates; it never imports `rocketcea`. The generator lives in the
+optional `cea` extra.
+
+The CSV deliberately contains **no timestamp**, so a fresh generation is
+byte-identical and `--check` can prove the committed file is what the current
+generator produces. Everything that does change on regeneration — the date, the
+`rocketcea` version, the Python version — lives in the separate
+`data/n2o_htpb_equilibrium_metadata.json`.
+
+## 49. Grid selection
+
+| Axis | Range | Step | Nodes |
+| --- | --- | --- | --- |
+| Mixture ratio O/F | 1.20 – 4.00 | 0.025 | 113 |
+| Chamber pressure | 10 – 45 bar | 2.5 bar | 15 |
+
+1695 CEA solutions in total.
+
+The Milestone 4 blowdown envelope across all its cases was O/F 1.558–2.909 and
+20.3–31.6 bar. The grid spans that with generous margin on both sides, because
+the Milestone 5 trajectories are **not** the Milestone 4 trajectories — the whole
+point of the milestone is that they move — and a grid sized to the old answer
+would have been begging the question.
+
+The resolution is far finer than the answer needs (§56.2 quantifies this). That
+is deliberate: the table is generated once and costs nothing at run time, so
+there was no reason to economise, and the margin means interpolation error is not
+what limits the result.
+
+## 50. The `M, (1/n)` vs `MW` distinction
+
+This is the subtlety that most affects the numbers, and it is easy to get wrong.
+
+Where equilibrium puts carbon into a **condensed** phase, CEA prints two
+different molar masses:
+
+* `MW, MOL WT` — the mean molecular weight of the **gas phase** only;
+* `M, (1/n)` — total mass per mole of gas, which **includes** the condensed mass.
+
+Our nozzle model expands a single gas through the isentropic relations. The
+quantity it needs is the one that reproduces the mixture's actual sound speed,
+because that is what sets the throat condition:
+
+```
+a^2 = gamma R T,   R = R_u / M    =>    M = gamma R_u T / a^2
+```
+
+That is `M, (1/n)`, not `MW`. RocketCEA's convenience accessor
+`get_Chamber_MolWt_gamma` returns `MW`. At the Milestone 1/3 reference point the
+effective molar mass is 21.057 g/mol against a gas-phase 19.543 g/mol — 7.75 %
+higher — so using the accessor would have inflated `R`, `c*` and thrust.
+
+The generator therefore computes the effective molar mass from CEA's own sound
+speed by the relation above, and **asserts** that it reproduces that sound speed
+before writing any data. Both molar masses are stored; their ratio is the
+condensed-phase indicator reported throughout. Over the table that ratio runs
+from 1.000 (no condensed phase) to 1.417 (heavily sooting).
+
+> **A units bug this guard caught.** The first version of the generator wrote
+> `M = gamma R_u T / a^2` and then multiplied by `1e-3` to "convert g/mol to
+> kg/mol". With `R_u` in J/(mol K) the expression already yields kg/mol, so the
+> extra factor made `R` roughly 1000× too large and the implied sound speed
+> 32 510 m/s instead of 1028 m/s. The sanity check written specifically to compare
+> against CEA's sound speed caught it before any data was written. It is recorded
+> here because the failure is instructive: every individual column still looked
+> plausible in isolation, and only the cross-relation exposed it.
+
+## 51. Interpolation: bilinear, deliberately not spline
+
+At the chamber soot boundary — O/F ≈ 3.01 at 25 bar, where equilibrium stops
+producing condensed carbon — `gamma` steps by about 4.5 % between two adjacent
+grid nodes, while `c*` and `T_c` merely kink.
+
+A cubic spline through that step would overshoot on both sides, inventing
+properties the solver never produced. Bilinear interpolation cannot overshoot:
+its value is bounded by the four surrounding nodes. That bound is asserted in
+`tests/test_thermochemistry.py`.
+
+The reference motor never reaches the boundary — it runs fuel-rich of it
+throughout — but the table spans it, so the interpolation has to behave there.
+
+### 51.1 `R` is recomputed, not interpolated
+
+`R = R_u / M` is an identity. Interpolating `R` and `M` separately would break it
+between nodes, by a small but entirely avoidable amount. The loader therefore
+interpolates `M` and **computes** `R` from it, so the identity holds exactly
+everywhere, not merely at the nodes.
+
+## 52. Efficiency architecture
+
+The table stores **ideal** equilibrium `c*`. The single `eta_c*` that Milestone 3
+introduced is applied once, downstream, in `thermochemistry.evaluate`:
+
+```
+c*_delivered = eta_c* * c*_ideal(O/F, p_c)
+```
+
+Nothing else in the chain reapplies it, so the loss is **not double-counted**.
+The default value is the same 0.96 Milestone 3 used, and
+`tests/test_thermochemistry.py` asserts that it still matches the efficiency
+implied by the frozen Milestone 3 constants, so the two milestones remain
+directly comparable.
+
+There is still **no nozzle efficiency**: the expansion is ideal, one-dimensional
+and shock-free, exactly as in Milestone 3.
+
+## 53. The implicit chamber closure
+
+Milestone 3's chamber relation was explicit, because `c*` was a constant:
+
+```
+p_c = m_dot c* / A_t
+```
+
+Now `c*` depends on the pressure it helps set, so the relation is implicit:
+
+```
+p_c = m_dot c*(O/F, p_c) / A_t
+```
+
+solved as a bracketed root of `F(p_c) - p_c` over the tabulated pressure span,
+where `F(p_c) = m_dot c*(O/F, p_c) / A_t`. Brent is used; no fixed-point
+iteration appears anywhere in Milestone 5.
+
+The pressure dependence of `c*` is weak (§56.3), so `F` is nearly flat and the
+root is well conditioned. It is still solved rather than assumed, because
+assuming it would leave an unquantified inconsistency in the middle of the model.
+
+## 54. The nested feed closure
+
+Six relations must hold simultaneously:
+
+```
+m_dot_ox = injector(tank_state, p_c)               Milestone 4, unchanged
+G_ox     = m_dot_ox / A_port(r_p)                  Milestone 1, unchanged
+r_dot    = a G_ox^n                                Milestone 1, unchanged
+m_dot_f  = rho_f (2 pi r_p L) r_dot                Milestone 2, unchanged
+O/F      = m_dot_ox / m_dot_f                      definition
+p_c      = (m_dot_ox + m_dot_f) c*(O/F, p_c) / A_t Milestone 5, implicit
+```
+
+Solved as **nested bracketed roots**: an outer Brent on the feed residual
+`injector_flow(p_c) - m_dot_ox`, with the implicit chamber solve of §53 run at
+each trial oxidizer flow.
+
+### 54.1 Why the Milestone 4 bracket no longer works
+
+Milestone 4 bracketed on `[0, m_dot_SPI(p_2 = 0)]`. That interval is no longer
+usable, because the table is valid only on a finite `(O/F, p_c)` rectangle and
+both coordinates leave it near the ends of that interval. In particular, as
+`m_dot_ox -> 0`,
+
+```
+m_dot_f ~ m_dot_ox^n    =>    O/F ~ m_dot_ox^(1-n)  ->  0
+```
+
+so the lower end of the Milestone 4 bracket sits below the table's minimum O/F.
+
+### 54.2 The replacement bracket
+
+The search interval is intersected with the oxidizer-flow window on which the
+inner solve is guaranteed to have a root inside the table. Two constraints define
+it, and both are available without extrapolating.
+
+**Mixture ratio.** The O/F bounds invert in closed form:
+
+```
+m_dot_ox(O/F) = [ (O/F) rho_f (2 pi r_p L) a_SI / (pi r_p^2)^n ]^(1/(1-n))
+```
+
+**Chamber pressure.** A root of `F(p_c) - p_c` exists inside the tabulated span
+exactly when `F(p_min) >= p_min` and `F(p_max) <= p_max`. Both tests evaluate the
+table *on* its boundary, so neither extrapolates, and both left-hand sides
+increase with oxidizer flow — the total mass flow grows roughly linearly while
+`c*` varies by a few per cent. Each therefore contributes one more bracketed root
+that trims an end off the window.
+
+If no sign change survives inside the trimmed window, the solver returns an
+explicit failure status. **The mixture ratio is never clipped into the table and
+the chamber pressure is never clamped to an edge.**
+
+## 55. Terminal and validity events
+
+The four Milestone 4 terminal events are kept unchanged — grain burnout, liquid
+depletion, tank/chamber pressure equalisation, tank temperature leaving the
+checked property band. Milestone 5 adds four more, one per table edge: O/F below
+or above the tabulated span, chamber pressure below or above it.
+
+Each table event returns the signed distance to its edge while the coupled solve
+succeeds, so it decreases smoothly to zero as the state approaches that edge.
+Past the edge the solve has no valid answer at all and the event returns a fixed
+negative value. The jump sits **exactly at the edge** — the last point where the
+solve succeeds is the last point where the margin is non-negative — so the root
+the integrator locates is the crossing itself, not an artefact of the step size.
+
+Unlike Milestone 4, the earliest event wins rather than the first in list order,
+because the table guards and the physical stops are genuinely independent and
+either may come first.
+
+These are guards. No case in the Milestone 5 study approaches a table edge, and
+every case reports `stayed_within_table = True`.
+
+## 56. Sensitivity methodology
+
+### 56.1 `c*` efficiency
+
+Swept 0.92 – 1.00 with everything else fixed. Reported for total impulse, mean
+thrust and burn time.
+
+### 56.2 Interpolation grid resolution
+
+Coarser tables are built by taking every n-th node of the committed table. The
+coarse nodes are an **exact subset** of the same CEA solutions and both endpoints
+are always retained, so the differences measure pure interpolation error with no
+change in the underlying chemistry. This is what makes it a usable
+grid-convergence measure rather than a comparison of two different tables.
+
+### 56.3 2-D table vs O/F-only interpolation
+
+An O/F-only variant is built by replacing every pressure column with the profile
+interpolated at one reference pressure. The pressure axis is retained, so the
+solver still sees the same valid rectangle, but it carries no information.
+Comparing against the full table isolates what the pressure dependence is worth.
+
+### 56.4 Equilibrium vs frozen nozzle chemistry
+
+Our nozzle expands with a single `gamma` taken from the chamber. The two limits
+CEA can compute bracket that assumption: *shifting* (equilibrium) composition,
+which keeps recombining and releasing energy through the expansion, and *frozen*
+composition, which does not.
+
+**CEA's frozen option does not converge across part of our range**, and that is
+reported rather than worked around. The comparison is generated into
+`data/n2o_htpb_nozzle_chemistry.csv` with a `frozen_converged` flag; rows where
+the solver failed are kept, carrying a zero, so the gap is visible in the
+committed data instead of being silently dropped.
+
+## 57. What Milestone 5 does not change
+
+Milestone 5 is deliberately **additive**. No Milestone 1–4 module was modified.
+
+* `chamber.py`, `nozzle.py`, `performance.py`, `feed_system.py`, `blowdown.py`
+  and every other frozen module are untouched.
+* The Milestone 3 nozzle is reused **verbatim**: `variable_nozzle.py` is a
+  translation layer that packages an interpolated state as the
+  `CombustionProperties` object the frozen code already accepts, so the isentropic
+  relations, the area–Mach solve and the thrust decomposition are literally the
+  same code paths.
+* Milestone 4 remains available and is re-run in this milestone's study and tests
+  as the **controlled comparison case**, on identical conditions.
+* Every numerical control in `simulate_variable_blowdown` keeps its Milestone 4
+  default, so no tolerance difference confounds the comparison.
+
+The only edits to pre-existing files are the additive extension points the brief
+allowed: `__init__.py` exports, `pyproject.toml`, this document, `README.md`, and
+the two scope guards.
+
+### 57.1 Scope-guard retargeting
+
+`tests/test_performance.py` and `scripts/manual_check.py` both forbade `cea` and
+`equilibrium_chemistry` symbols, which was the correct boundary through Milestone
+4 and which Milestone 5 was chartered to cross. As in Milestones 3 and 4, the
+guards are **retargeted** at what is still deferred rather than deleted.
+
+Equilibrium chemistry is now in scope; **finite-rate chemistry and kinetics are
+not**, and are added to the forbidden set. Equilibrium buys instantaneous,
+complete reaction — it says nothing about reaction *rates*. The retargeting is a
+documented scope change, not a correction: no prior physics, coefficient or
+reported value is affected, and every numeric check in `manual_check.py` is
+unchanged.
+
+## 58. Milestone 5 verification strategy
+
+| Claim | How it is checked independently |
+| --- | --- |
+| The committed table is what the generator produces | `--check` regenerates in memory and compares byte-for-byte |
+| The table is a complete rectangular grid | The CSV is re-parsed with the standard library, not the package loader |
+| `R = R_u / M` at every node | Re-derived from the raw CSV columns |
+| The stored `c*` is consistent with `gamma`, `R`, `T_c` | Re-derived through the independent `ideal_characteristic_velocity` |
+| Bilinear interpolation cannot overshoot | Off-node values are bounded by the four surrounding nodes |
+| A cell centre is the mean of its four corners | Exact known value of bilinear interpolation |
+| Efficiency is applied once, only to `c*` | Other properties are asserted unchanged when `eta` changes |
+| The table is never extrapolated | Every out-of-range evaluation must raise |
+| The chamber closure converges | Re-solved by an independent scan-plus-secant method |
+| All six feed relations hold | Each re-formed from the frozen Milestone 1–4 components |
+| The O/F inversion is correct | Round-tripped through the forward regression chain |
+| Blowdown closures hold | Mass, geometry and impulse re-formed from the reported histories |
+| Sampled states are self-consistent | Re-solved from scratch with the static coupled solver |
+| Reported thrust follows from reported chemistry | Re-derived through the frozen Milestone 3 nozzle |
+| Milestone 4 is untouched | Re-run in the same session and asserted to give its own answer |
+| The headline result | Asserted numerically, so a regression fails loudly |
