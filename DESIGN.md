@@ -1,4 +1,13 @@
-# DESIGN — Milestone 1
+# DESIGN — Milestones 1 and 2
+
+* **Part I (§1–§11)** — Milestone 1: instantaneous prescribed-flow regression bookkeeping.
+* **Part II (§12–§22)** — Milestone 2: transient prescribed-flow port evolution.
+
+Neither part models chamber pressure, nozzle flow or thrust.
+
+---
+
+# Part I — Milestone 1
 
 Reduced-order model of a **generic** N₂O / HTPB hybrid rocket motor.
 
@@ -27,6 +36,7 @@ Reduced-order model of a **generic** N₂O / HTPB hybrid rocket motor.
 | Oxidizer mass flux | `G_ox` | kg/(m²·s) |
 | Regression rate | `ṙ` | m/s |
 | Mixture ratio | `O/F` | – (dimensionless) |
+| Time | `t` | s (Milestone 2) |
 
 Non-SI units appear in exactly two places, both deliberate and both explicit:
 
@@ -437,9 +447,504 @@ Milestone 1 does **not** model, compute, approximate or report any of:
 
 ---
 
-## 11. Next milestone
+## 11. Milestone 1 status
 
-**Milestone 2 — transient port-radius evolution under prescribed oxidizer-flow
-histories:** integrate `dD_p/dt = 2 ṙ` for a prescribed `ṁ_ox(t)`, handle fuel
-depletion / burnout events when `D_p → D_o`, and produce time histories of `ṙ`,
-`ṁ_f` and `O/F`. Still no chamber-pressure or nozzle coupling.
+Milestone 1 is complete and frozen. Its production physics, tests, scripts,
+figures, coefficients and reported values are unchanged by Milestone 2. Part II
+below builds on them without editing them; the only Milestone 1 files touched
+are the package `__init__.py` (re-exports), `pyproject.toml` (a `scipy`
+dependency and a version bump) and this document.
+
+---
+
+# Part II — Milestone 2
+
+Transient port regression under prescribed oxidizer-flow histories.
+
+---
+
+## 12. Source audit for the geometric state equation
+
+Milestone 2 introduces exactly one new physical statement: how the port geometry
+evolves given a regression rate. No new regression coefficients were sought or
+introduced; Part I's sourced N₂O/HTPB law is reused verbatim.
+
+### 12.1 What was consulted
+
+The same three sources audited in §4.1 were re-read for this purpose:
+
+| # | Source | Used for |
+| --- | --- | --- |
+| S2 | Marquardt & Majdalani, **AIAA 2020-3758** | The definition of `ṙ` as a surface recession velocity |
+| S3 | Karabeyoglu, Cantwell & Zilliac, **JPP** 23(4) (2007) | The port-diameter state equation, the quasi-steady assumption, the prescribed-flow boundary condition, an exact closed-form solution for `n = 0.5`, and a global mass balance as a numerical check |
+
+### 12.2 What the literature directly supports
+
+* **`ṙ` is a surface velocity, not a mass rate.** S2's Eq. (1) writes the wall
+  heat flux as `Q̇_w = ṁ''_f h_v = ρ_f ṙ h_v`, i.e. `ρ_f ṙ` *is* the fuel mass
+  flux leaving the surface. So `ṙ` has dimensions of length/time and is the speed
+  at which the solid–gas interface recedes along its normal. This is what makes
+  `ṁ_f = ρ_f A_burn ṙ` (§5) and the state equation below the *same* statement
+  viewed two ways.
+* **For a circular port, `2ṙ = ∂D/∂t`.** S3 states this explicitly, in those
+  terms, immediately before its port-diameter equation: *"Based on the definition
+  of regression rate, `2ṙ = ∂D/∂t`, the variation of the port diameter at an
+  axial position x and time t can be written as"* — their Eq. (51),
+  `∂D/∂t = C_D ṁⁿ x^m / D^(2n)`. With no length dependence (`m = 0`) this is
+  precisely the equation integrated here. S3 derives it for *"the case of a
+  single circular port"*, the same geometry as this project.
+* **The regression law is applied quasi-steadily.** S3 introduces its companion
+  port mass balance *"under the quasi-steady assumption"*. The empirical
+  correlation is a steady-state result, so at each instant the model evaluates it
+  at the instantaneous flux and treats the flow field as having already adjusted.
+* **Oxidizer flow enters as an externally prescribed boundary condition.** S3
+  solves its system with the initial condition `D(x, t=0) = D_i(x)` and the
+  boundary condition `ṁ = ṁ_o(t)` — the oxidizer mass flow is *given*, not
+  derived from tank or chamber state. That is exactly the framing used here.
+* **A closed-form solution exists for `n = 0.5`.** S3 §VI.C derives an exact
+  solution for a flux exponent of 0.5; with no length dependence and constant
+  oxidizer mass flow it takes the form `D(t) = [D_i² + C t]^(1/2)`, i.e. the
+  squared diameter is linear in time.
+* **A global mass balance is the recommended numerical check.** S3's Eq. (63)
+  states that the fuel mass added must equal the increase in port volume times
+  the solid density, and says it *"can be used to check the accuracy of the
+  numerical solutions"*. §17 below implements exactly that.
+
+### 12.3 What was *not* verified
+
+* No new source was consulted for regression coefficients, by design.
+* S3's treatment is a partial differential equation in `(x, t)`; this project
+  integrates only the `m = 0`, axially lumped ordinary differential equation. The
+  axial structure of S3's solution is therefore **not** reproduced or verified
+  here, and the sliver/non-uniformity behaviour it predicts is outside this model
+  (see §22).
+
+---
+
+## 13. Derivation of the state equation
+
+The fuel surface recedes along its outward normal at speed `ṙ`. For a circular
+port the normal is radial and the surface is the cylinder `r = r_p`, so
+
+```
+dr_p/dt = ṙ                                                      (13.1)
+```
+
+and since `D_p = 2 r_p`,
+
+```
+dD_p/dt = 2 ṙ                                                    (13.2)
+```
+
+which is S3's stated identity. Everything else follows from Part I unchanged:
+
+```
+A_port(t) = π r_p(t)²
+G_ox(t)   = ṁ_ox(t) / A_port(t)
+ṙ(t)      = a_SI · G_ox(t)ⁿ
+A_burn(t) = 2 π r_p(t) L
+ṁ_f(t)    = ρ_f · A_burn(t) · ṙ(t)
+O/F(t)    = ṁ_ox(t) / ṁ_f(t)
+```
+
+### 13.1 Assumptions specific to the transient model
+
+1. The port stays circular, concentric and axially uniform at all times; `r_p` is
+   a single scalar.
+2. Regression is spatially uniform — the space–time averaged correlation is
+   applied as a lumped instantaneous value (see §22 for what this costs).
+3. The correlation is applied **quasi-steadily**: no thermal lag in the solid, no
+   transient boundary-layer development, no ignition or shutdown dynamics.
+4. Oxidizer mass flow is prescribed and perfectly known at every instant.
+5. Grain end faces remain inhibited, so `A_burn = 2π r_p L` throughout.
+6. Fuel is homogeneous, so `ρ_f` is constant in time and space.
+7. There is no coupling back from a chamber, nozzle or feed system — by design.
+
+---
+
+## 14. Closed-form constant-flow solution
+
+Substituting `G_ox = ṁ_ox/(π r²)` into `ṙ = a_SI G_ox ⁿ` gives
+
+```
+dr/dt = a_SI (ṁ_ox/π)ⁿ r^(−2n) = K r^(−2n),      K = a_SI (ṁ_ox/π)ⁿ    (14.1)
+```
+
+`K` carries SI units throughout because `a_SI` is the once-converted coefficient
+from §4.4; no mm/s or g/(cm²·s) quantity ever enters. Separating,
+
+```
+r^(2n) dr = K dt   ⟹   r^(2n+1)/(2n+1) = K t + C
+```
+
+and applying `r(0) = r_0`,
+
+```
+r(t) = [ r_0^(2n+1) + (2n+1) K t ]^(1/(2n+1))                     (14.2)
+```
+
+### 14.1 Analytic burnout time
+
+Setting `r = r_outer` and inverting:
+
+```
+t_burn = [ r_outer^(2n+1) − r_0^(2n+1) ] / [ (2n+1) K ]           (14.3)
+```
+
+For `ṁ_ox = 0` we get `K = 0` and the implementation returns `inf`: the port
+never regresses, so burnout is never reached.
+
+### 14.2 Structural check against the published exact solution
+
+For `n = 0.5` the exponent `2n+1 = 2`, so (14.2) becomes `r² = r_0² + 2Kt` and
+therefore `D² = D_i² + 8Kt` — the squared diameter is linear in time, matching
+the form of S3's exact `n = 0.5` solution (§12.2). The test suite asserts both
+the linearity and the slope `8K`.
+
+### 14.3 Numerical values at the representative point
+
+With `a_SI = 1.709446806 × 10⁻⁴`, `n = 0.3667`, `ṁ_ox = 0.100 kg/s`:
+
+```
+K       = 1.709446806e-4 × (0.100/π)^0.3667 = 4.828928 × 10⁻⁵  (SI)
+2n + 1  = 1.7334
+t_burn  = (0.045^1.7334 − 0.020^1.7334) / (1.7334 × 4.828928e-5) = 41.740618 s
+```
+
+Differentiating (14.2) at `t = 0` returns `K r_0^(−2n) = 8.508938 × 10⁻⁴ m/s`
+= 0.850894 mm/s, identical to the Milestone 1 headline value — the transient
+model starts exactly where the instantaneous model sits.
+
+---
+
+## 15. Numerical solver design
+
+### 15.1 Augmented state
+
+Cumulative masses are integrated as ODE states rather than post-processed, so
+they inherit the integrator's own error control:
+
+```
+y = [ r_p , m_ox,cum , m_f,cum ]
+
+dy/dt = [ ṙ , ṁ_ox(t) , ρ_f (2π r_p L) ṙ ]
+```
+
+### 15.2 Method
+
+`scipy.integrate.solve_ivp` with `DOP853` by default (`RK45` is accepted and
+tested), `rtol = 1e-10` / `atol = 1e-14` by default, and `dense_output=True` so
+the reporting grid can be chosen independently of the steps actually taken.
+`scipy` is therefore a new runtime dependency at Milestone 2; it is declared in
+`pyproject.toml`.
+
+### 15.3 Segment-wise integration
+
+The integration is **restarted at every interior breakpoint** of the flow
+history. A piecewise-constant schedule is therefore integrated exactly, segment
+by segment, instead of having a step discontinuity smeared across an adaptive
+step. Within a segment the prescribed flow is continuous, so the integrator sees
+a smooth problem.
+
+### 15.4 A defect found and fixed during development
+
+The first implementation looked the flow up globally with half-open segments
+`[start, end)`. An integrator legitimately evaluates the right-hand side *at* a
+segment's right endpoint, and the global lookup there returned the **next**
+segment's flow. The consequence was measurable and physical, not cosmetic: the
+final step of each segment was integrated with the wrong derivative, leaving a
+1.3 × 10⁻¹⁰ kg error in the accumulated oxidizer mass at the first breakpoint,
+and — worse — a zero-flow interval was no longer exactly frozen, drifting by
+3.6 × 10⁻¹¹ kg. The tests for "a zero-flow interval leaves the radius unchanged"
+caught it.
+
+The fix is `OxidizerFlowHistory.flow_on_segment(start, end)`, which returns a
+flow law valid on the *closed* segment. `PiecewiseConstantOxidizerFlow` overrides
+it to bind the single constant identified by the segment midpoint, so the law is
+exactly constant across the whole segment including both endpoints. After the
+fix, zero-flow intervals are frozen to *exactly* zero drift (spread 0.0 in
+radius, cumulative oxidizer mass and cumulative fuel mass), and the oxidizer mass
+at the breakpoint is exact to round-off.
+
+### 15.5 Reporting grid and the right-limit convention
+
+The reporting grid is `n_report` evenly spaced samples, unioned with the
+termination time and with every interior breakpoint. At an interior breakpoint
+the grid carries **two** nearly coincident samples — `nextafter(t_b, −∞)` and
+`t_b` — so a discontinuous prescribed flow is reported by its left *and* right
+limits and is never drawn as a spurious ramp. Derived quantities at `t_b` itself
+use the right limit, matching the half-open `[start, end)` convention of the
+schedule.
+
+The grid affects sampling only: refining it from 11 to 4001 points changes
+neither the burnout time nor the consumed fuel (§19).
+
+---
+
+## 16. Event handling
+
+A terminal event `g(t, y) = r_p − r_outer` with `direction = +1` stops the
+integration the instant the port reaches the outer grain radius. SciPy locates
+the root by Brent's method on the dense output, so the burnout time is resolved
+to solver precision rather than to a step boundary.
+
+Consequences, all asserted by tests:
+
+* the solution is **never continued into negative fuel thickness**;
+* `r_p ≤ r_outer` and `D_p ≤ D_o` at every reported sample (the final sample's
+  round-off is clipped to the boundary, a sub-nanometre correction);
+* remaining fuel mass at burnout is zero to within 10⁻⁹ kg;
+* the reported status is `FUEL_DEPLETED`, and the requested horizon is reported
+  as *not* reached.
+
+A run that reaches the end of its window with fuel remaining reports
+`COMPLETED_TIME_WINDOW` and `burnout_time_s = None`. Nothing beyond burnout is
+fabricated.
+
+Milestone 1's `GrainGeometry.fuel_mass_kg` deliberately rejects `D_p ≥ D_o`,
+which is correct for instantaneous bookkeeping but excludes the burnout point
+itself. Rather than modify frozen Milestone 1 code, `transient.remaining_fuel_mass_kg`
+evaluates the same geometry on the **closed** interval. Being independently
+written, it doubles as a cross-check: a test asserts it agrees with the
+Milestone 1 routine everywhere on the open interior.
+
+---
+
+## 17. Mass-conservation equations
+
+Two independent bookkeeping paths must agree.
+
+**Geometric fuel loss** — from the port radius alone:
+
+```
+m_f,consumed(t) = ρ_f L π ( r_p(t)² − r_p,0² )
+m_f,remaining(t) = ρ_f L π ( r_outer² − r_p(t)² )
+```
+
+**Integrated fuel flow** — from the ODE accumulator:
+
+```
+m_f,cum(t) = ∫₀ᵗ ṁ_f dt = ∫₀ᵗ ρ_f (2π r_p L) ṙ dt
+```
+
+These are equal *identically*, because
+
+```
+ṁ_f = ρ_f (2π r_p L) dr_p/dt = ρ_f L π d(r_p²)/dt
+```
+
+so the residual `m_f,cum − ρ_f L π (r_p² − r_p,0²)` is **zero in exact
+arithmetic**. It is therefore a pure measure of integration error and a sharp
+check on the solver — not a modelling approximation with a physical tolerance.
+This is the global mass balance S3 recommends (§12.2).
+
+**Oxidizer bookkeeping** is checked the same way:
+
+```
+m_ox,used(t) = ∫₀ᵗ ṁ_ox dt
+```
+
+compared for constant flow against `ṁ_ox · t`, and for a schedule against a
+hand-written sum of `flow × duration` over segments.
+
+Measured residuals, worst case across all four study cases: **8.3 × 10⁻¹¹ kg
+absolute, 7.9 × 10⁻¹¹ relative**, on a 1.899 kg grain. Constant-flow oxidizer
+closure is below 10⁻¹¹ kg. Residuals are reported, never hidden.
+
+---
+
+## 18. Prescribed-flow schedule representation
+
+Three history types, all validated at construction:
+
+| Type | Meaning |
+| --- | --- |
+| `ConstantOxidizerFlow` | one constant flow over a window |
+| `PiecewiseConstantOxidizerFlow` | a contiguous, gapless, strictly increasing sequence of `FlowSegment`s; `from_durations` builds one from `(duration, flow)` pairs |
+| `CallableOxidizerFlow` | a user-supplied `ṁ_ox(t)`, sampled at construction and re-validated on every RHS evaluation |
+
+Rejected inputs (all raise `ValueError`, or `TypeError` for a non-callable):
+
+* negative or non-finite mass flow;
+* negative time, or a window with `t_end ≤ t_start`;
+* segments with non-positive duration;
+* schedules with gaps, overlaps or out-of-order segments;
+* an empty schedule;
+* a flow query outside the schedule's window;
+* an initial port diameter that is non-positive or not inside the grain
+  (delegated to the Milestone 1 geometry);
+* `n_report < 2`, or a `t_end_s` outside the flow history's window.
+
+A callable is integrated as a single smooth segment; a history with genuine
+discontinuities must use `PiecewiseConstantOxidizerFlow` so the solver restarts
+at each jump. This is documented on the class.
+
+### 18.1 Zero-flow convention
+
+At `ṁ_ox = 0`:
+
+```
+G_ox = 0     ṙ = 0     ṁ_f = 0     dr_p/dt = 0     O/F = NaN
+```
+
+`ṙ = 0` is the exact continuous limit of `a G^n` as `G → 0` for `n > 0`, so no
+special case is needed in the physics. The port radius, cumulative oxidizer mass
+and cumulative fuel mass are all exactly frozen (verified to a spread of 0.0).
+
+`O/F` is **undefined** when `ṁ_f = 0` — there is no fuel to form a ratio with —
+so the history reports `NaN`. This is a deliberate choice over `inf` or a
+sentinel: `NaN` propagates loudly, is trivially testable with `isnan`, and causes
+plotting libraries to *break the line* rather than draw a fabricated value.
+Figures M2-C and M2-E rely on exactly that: nothing is drawn across the coast.
+The scalar helper `operating_point.mixture_ratio` (Milestone 1) still *raises*
+for zero fuel flow; that difference is intentional — a scalar caller has made a
+single meaningless request, whereas a history legitimately contains samples where
+the quantity does not exist.
+
+---
+
+## 19. Validity and extrapolation classification
+
+Milestone 1 recorded the source's measured flux range as 35–120 kg/(m²·s). Every
+reported transient sample is classified into `FluxRangeStatus`:
+
+| Status | Meaning |
+| --- | --- |
+| `WITHIN_SOURCE_FLUX_RANGE` | `G_ox` inside the measured range |
+| `BELOW_SOURCE_FLUX_RANGE` | extrapolating below the data |
+| `ABOVE_SOURCE_FLUX_RANGE` | extrapolating above the data |
+| `ZERO_OXIDIZER_FLOW` | `ṁ_ox = 0`; the exact zero limit, not an extrapolation |
+| `NO_SOURCE_RANGE_DECLARED` | the law carries no validated range (e.g. an illustrative law) |
+
+`ZERO_OXIDIZER_FLOW` is kept distinct from `BELOW_SOURCE_FLUX_RANGE`
+deliberately: at zero flow the model is not extrapolating an empirical
+correlation at all, and lumping the two together would overstate how much of a
+burn is extrapolated.
+
+`TransientResult.time_fraction_with_status` weights by elapsed time
+(trapezoidally over the reporting grid), not by sample count, so an uneven grid
+cannot distort the answer.
+
+**Nothing is clamped and nothing is discarded.** `G_ox` and `ṙ` are evaluated and
+reported wherever the trajectory goes; the classification is metadata alongside
+them. The study prints an explicit warning when a burnout prediction rests
+mostly on extrapolation, and figures M2-B draws extrapolated segments dotted.
+
+### 19.1 Result
+
+| Case | `ṁ_ox` [kg/s] | Within range | Below range |
+| --- | ---: | ---: | ---: |
+| A | 0.100 | 33.7 % | 66.3 % |
+| B | 0.050 | 3.8 % | 96.2 % |
+| C | 0.150 | 61.6 % | 38.4 % |
+| D | piecewise | 50.0 % | 35.0 % (plus 15.0 % zero-flow) |
+
+Because port area grows at constant flow, `G_ox` falls monotonically and the
+trajectory always ends up below the data. **The burnout predictions in Cases A
+and B rest mostly on extrapolation**, and the study says so in those words.
+Counter-intuitively, *lower* flow leaves the validated range sooner, not later.
+
+---
+
+## 20. Convergence study
+
+The closed-form solution (§14) is the reference, so this is convergence against
+an exact answer rather than against a finer numerical run.
+
+| `rtol` | Method | `t_burn` [s] | Relative error | `r(10 s)` rel. error | Mass-closure residual [kg] |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1e-05 | DOP853 | 41.740617467 | 8.05e-09 | 9.41e-10 | 3.05e-07 |
+| 1e-07 | DOP853 | 41.740617771 | 7.71e-10 | 1.30e-10 | 1.43e-08 |
+| 1e-09 | DOP853 | 41.740617800 | 6.25e-11 | 2.83e-12 | 4.59e-10 |
+| 1e-11 | DOP853 | 41.740617803 | 9.15e-13 | 4.81e-14 | 1.09e-11 |
+| 1e-11 | RK45 | 41.740617803 | 6.11e-12 | 3.43e-13 | 3.92e-10 |
+
+Closed-form reference: `t_burn = 41.740617803 s`, `r(10 s) = 0.027506697529 m`.
+
+Every reported quantity converges monotonically towards the analytic value, and
+two independent integrators agree. Reporting-grid refinement (11 → 4001 samples)
+leaves the burnout time and consumed fuel unchanged to all printed digits, and a
+`max_step = 0.25 s` restriction changes nothing. The results are not artefacts of
+the tolerance or the grid.
+
+---
+
+## 21. Milestone 2 verification strategy
+
+The independence rules of §7 continue to apply. Specifically, for Milestone 2:
+
+* the closed-form solution is **re-derived inside the test file** from the
+  coefficient as printed in the source paper (`0.3977`, mm/s, g/(cm²·s)) with its
+  own unit arithmetic, and never read back from the production law object;
+* piecewise trajectories are checked against the closed form **chained segment by
+  segment by hand** — something the production solver never does, since it
+  integrates numerically;
+* the `n = 0.5` case is checked against the *published* exact solution's
+  structure (`D²` linear in `t`, slope `8K`);
+* mass closure is checked against geometry formed independently of the
+  integrator's accumulator states;
+* piecewise oxidizer mass is checked against a hand-written `Σ flow × duration`;
+* the transient fuel-mass helper is cross-checked against Milestone 1's geometry
+  routine on the open interior;
+* several histories are re-checked sample-by-sample against Milestone 1's
+  `OperatingPoint` at the corresponding port diameter.
+
+`tests/test_transient.py` contains 119 tests covering all 30 required checks:
+initial-state agreement with Milestone 1; `dr/dt = ṙ` and `dD/dt = 2ṙ` by central
+differences; the analytic radius and burnout time; numerical-versus-analytic
+agreement; monotonicity of radius, diameter, area and remaining fuel;
+non-negative fuel; no overshoot; falling `G_ox` and `ṙ` at constant flow; the
+fuel-flow and O/F equations; fuel and oxidizer mass conservation; piecewise mass
+integration; all four zero-flow behaviours including the `NaN` convention; the
+burnout event; a short non-burnout run; every rejection case; scalar/array
+consistency; flux classification including the zero-flow category; and
+convergence in tolerance, integrator, grid and `max_step`.
+
+Whole-repository gate before commit: `pytest -W error -q` (286 tests) and
+`ruff check .` must both pass.
+
+---
+
+## 22. Milestone 2 limitations
+
+1. **Most of a constant-flow burn is extrapolated** (§19). The burnout times are
+   extrapolated results. This is the single most important caveat on every
+   Milestone 2 number.
+2. **Spatially uniform regression.** The port is one scalar radius, so axial
+   variation of `ṙ` is ignored. S3 shows that real single-port grains regress
+   non-uniformly and leave a residual *sliver* of unburnt fuel at the point where
+   the thinnest section breaks through. This model instead consumes the grain
+   exactly and uniformly, so its burnout is an **idealised upper bound** on fuel
+   utilisation and its burn time is correspondingly optimistic.
+3. **Quasi-steady regression.** A steady-state correlation is applied
+   instantaneously. There is no thermal lag in the solid, no transient
+   boundary-layer response, no ignition transient and no tail-off.
+4. **The grain-length dependence is still unmodelled.** The §4.6(b) caveat — that
+   predictions may be ~15 % low for this 400 mm grain — applies to every
+   transient result here, including the burnout times.
+5. **Circular, concentric port for all time.** No coning, no non-circular ports,
+   no multi-port geometry, no erosion of the port shape.
+6. **No coupling back from the chamber.** The oxidizer flow is prescribed, so
+   nothing represents how a real feed system and chamber would respond to the
+   growing port. A real motor's oxidizer flow would itself depend on chamber
+   pressure.
+7. **No uncertainty quantification.** Point values only; no confidence interval
+   on `a`, `n`, or the resulting burnout time is propagated.
+8. **Nothing here has been validated against hardware.**
+
+---
+
+## 23. Deferred physics — still NOT modelled after Milestone 2
+
+Everything listed in §10 remains out of scope and absent from production code:
+N₂O tank thermodynamics, injector flow, feed-system pressure drop, chamber
+pressure, combustion efficiency, equilibrium chemistry, `c*`, nozzle flow,
+thrust, specific impulse, structural design, thermal design, ignition and
+fabrication.
+
+`scripts/manual_check.py` enforces the code half of this list programmatically,
+and the Milestone 2 study prints its own scope notice.
+
+**Milestone 3 (not started)** would couple the fuel and oxidizer flows computed
+here to combustion properties, chamber pressure and nozzle flow, so that thrust
+could eventually be predicted. No part of that exists in this repository.
