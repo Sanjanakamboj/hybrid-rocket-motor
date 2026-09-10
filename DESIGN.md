@@ -950,9 +950,14 @@ fabrication.
 `scripts/manual_check.py` enforces the code half of this list programmatically,
 and the Milestone 2 study prints its own scope notice.
 
-**Milestone 3 (not started)** would couple the fuel and oxidizer flows computed
-here to combustion properties, chamber pressure and nozzle flow, so that thrust
-could eventually be predicted. No part of that exists in this repository.
+**Milestone 3 (not started at the time of writing)** would couple the fuel and
+oxidizer flows computed here to combustion properties, chamber pressure and nozzle
+flow, so that thrust could eventually be predicted. No part of that existed in the
+repository at Milestone 2.
+
+> *Historical note, added at Milestone 6.* This forward-looking paragraph is kept
+> as the record of what Milestone 2 deferred. Milestone 3 subsequently did exactly
+> this; see Part III.
 
 ---
 
@@ -1319,10 +1324,14 @@ fails if any deferred-physics token reaches the public API, and
 `test_oxidizer_flow_is_never_derived_from_chamber_pressure`, which fails if the
 one-way coupling is ever reversed.
 
-**Milestone 4 (not started)** would couple chamber pressure back to an N₂O
-feed/injector/tank model, so that the oxidizer flow is no longer externally
-prescribed. That needs properly sourced N₂O property data and two-phase /
-feed-system modelling, with strong scope controls. No part of it exists here.
+**Milestone 4 (not started at the time of writing)** would couple chamber pressure
+back to an N₂O feed/injector/tank model, so that the oxidizer flow is no longer
+externally prescribed. That needs properly sourced N₂O property data and
+two-phase / feed-system modelling, with strong scope controls. No part of it
+existed in the repository at Milestone 3.
+
+> *Historical note, added at Milestone 6.* Kept as the record of what Milestone 3
+> deferred. Milestone 4 subsequently did exactly this; see Part IV.
 
 ---
 
@@ -1766,9 +1775,14 @@ The retargeting is a documented scope change, not a correction; no prior physics
 coefficient or reported value is affected, and every numeric check in
 `manual_check.py` is unchanged.
 
-**Milestone 5 (not started)** would replace the prescribed constant `c*`, `gamma`
-and `T_c` with a properly sourced O/F dependence, removing the largest remaining
-unphysical assumption in the chain.
+**Milestone 5 (not started at the time of writing)** would replace the prescribed
+constant `c*`, `gamma` and `T_c` with a properly sourced O/F dependence, removing
+the largest remaining unphysical assumption in the chain.
+
+> *Historical note, added at Milestone 6.* Kept as the record of what Milestone 4
+> deferred. Milestone 5 subsequently did exactly this; see Part V. Milestone 6's
+> sensitivity ranking later showed the removed assumption was worth −10.69 % of
+> total impulse and 1.50× the thrust-decay magnitude.
 
 ---
 
@@ -1785,10 +1799,10 @@ inputs.
 
 | # | Source | Used for | Access |
 | --- | --- | --- | --- |
-| 1 | Gordon, S. & McBride, B. J., *Computer Program for Calculation of Complex Chemical Equilibrium Compositions and Applications*, NASA RP-1311 (1994/1996) | The equilibrium formulation itself: the Gibbs-minimisation method, the rocket-problem options, and the definitions of the printed quantities | Public (NASA NTRS) |
-| 2 | `rocketcea` (C. Carmichael), a maintained Python wrapper around the NASA CEA FORTRAN source | Running RP-1311's solver reproducibly from a script | Public (PyPI, open source) |
-| 3 | CEA's built-in `N2O` and `HTPB` reactant cards | The propellant definitions, quoted verbatim into the committed CSV header | Ships with the solver |
-| 4 | ESDU 91022, *Equilibrium composition and properties of combustion products* | Considered as a tabulated-data fallback | **Paywalled — not used** |
+| S17 | Gordon, S. & McBride, B. J., *Computer Program for Calculation of Complex Chemical Equilibrium Compositions and Applications, I. Analysis*, NASA RP-1311 (1994); with McBride, B. J. & Gordon, S., *II. Users Manual and Program Description*, NASA RP-1311-P2 (1996) | The equilibrium formulation itself: the Gibbs-minimisation method, the rocket-problem options, and the definitions of the printed quantities | Public (NASA NTRS) |
+| S18 | `rocketcea` 1.2.3 (Charlie Taylor), a maintained Python wrapper around the NASA CEA FORTRAN source, GPL-3.0 | Running RP-1311's solver reproducibly from a script | Public (PyPI, open source) |
+| S19 | CEA's built-in `N2O` and `HTPB` reactant cards | The propellant definitions, quoted verbatim into the committed CSV header | Ships with the solver |
+| S20 | ESDU 91022, *Equilibrium composition and properties of combustion products* | Considered as a tabulated-data fallback | **Paywalled — not used** |
 
 ### 47.2 The decision, and what was rejected
 
@@ -2109,3 +2123,289 @@ unchanged.
 | Reported thrust follows from reported chemistry | Re-derived through the frozen Milestone 3 nozzle |
 | Milestone 4 is untouched | Re-run in the same session and asserted to give its own answer |
 | The headline result | Asserted numerically, so a regression fails loudly |
+
+---
+
+# Part VI — Milestone 6
+
+Final multidisciplinary audit, robustness study and repository freeze. No new
+physics.
+
+---
+
+## 59. Scope of the final milestone
+
+Milestone 6 adds an **analysis layer**, not a physics layer. It re-runs the frozen
+Milestone 3, 4 and 5 models over a disclosed set of perturbations and reports what
+changes. The additions are:
+
+| File | Role |
+| --- | --- |
+| `src/hybrid_rocket_motor/robustness.py` | Case reduction, sensitivity families, ranking, conclusion support |
+| `scripts/independent_audit.py` | End-to-end verification against independently coded references |
+| `scripts/final_robustness_study.py` | The final study: hierarchy, sensitivity, ranking, conclusions |
+| `scripts/generate_final_figures.py` | Five deterministic portfolio figures |
+| `VERIFICATION.md`, `RESULTS.md` | Verification record and quantitative findings |
+
+No Milestone 1–5 solver was rewritten. The only production-code change is the
+minimal defect fix recorded in §63.
+
+## 60. Final model hierarchy
+
+Three levels, differing only in which assumption each makes:
+
+| Level | Oxidizer flow | Combustion properties |
+| --- | --- | --- |
+| M3 | prescribed input | prescribed constants |
+| M4 | output of the tank/injector/chamber loop | prescribed constants |
+| M5 | output of the tank/injector/chamber loop | interpolated from a frozen CEA table |
+
+On the same nominal configuration:
+
+| Model | Burn [s] | `F₀` [N] | `F_end` [N] | Slope | Impulse [N·s] | `I_sp` [s] |
+| --- | --- | --- | --- | --- | --- | --- |
+| M3 | 41.741 | 310.05 | 333.53 | +7.573 % | 13 525.65 | 227.103 |
+| M4 | 42.917 | 313.73 | 286.76 | −8.599 % | 13 018.56 | 225.725 |
+| M5 | 42.522 | 290.76 | 253.21 | −12.915 % | 11 627.03 | 199.451 |
+
+Decomposed:
+
+| Effect | Impulse | Burn time | Slope [pp] |
+| --- | --- | --- | --- |
+| A. feed/blowdown coupling (M4 − M3) | −3.75 % | +2.82 % | −16.17 |
+| B. variable thermochemistry (M5 − M4) | −10.69 % | −0.92 % | −4.32 |
+| C. total (M5 − M3) | −14.04 % | +1.87 % | −20.49 |
+
+The slope column is in **percentage points**, because the compared quantity is
+itself a percentage. The decomposition is the headline portfolio result: the two
+modelling steps act on different quantities and are not interchangeable.
+
+## 61. Sensitivity architecture
+
+### 61.1 What kind of study this is
+
+**Deterministic, one factor at a time.** Each family changes exactly one
+assumption to stated alternative values and reruns the whole coupled model with
+everything else at the reference case. No probability distribution is assumed for
+any input, no sampling is performed, and nothing produced here is a confidence
+interval. A "±10 %" means two extra runs at those two values.
+
+### 61.2 The families
+
+| Family | Alternatives |
+| --- | --- |
+| Regression coefficient `a` | ×0.90, ×1.10 |
+| Regression exponent `n` | 0.3367, 0.3967, **coefficient re-anchored** |
+| `c*` efficiency | 0.92, 1.00 |
+| Injector effective area | ×0.90, ×1.10 |
+| Injector model | SPI limit, HEM limit |
+| Initial tank temperature | 283.15 K, 303.15 K |
+| Chemistry grid resolution | every 4th/2nd node, every 16th/7th node |
+| Chemistry pressure dependence | O/F-only table frozen at 25 bar |
+
+### 61.3 The exponent-anchoring convention
+
+Changing `n` alone changes the regression rate everywhere, so the comparison would
+confound "different exponent" with "different overall rate". The coefficient is
+therefore re-chosen so the perturbed law reproduces the baseline law **exactly at
+the reference flux** `G_ox` = 79.577 kg/(m²·s):
+
+```
+a'  =  ṙ_baseline(G_ref) / G_ref^n'
+```
+
+The comparison is then specifically about the *slope* of the correlation. The
+source-to-SI conversion factor itself depends on `n` (the flux unit conversion is
+raised to that power), so it is measured at the new exponent rather than carried
+over — a probe law with unit source coefficient reports exactly that factor.
+
+A perturbed law is marked `ILLUSTRATIVE`, never `SOURCED`: a scaled or re-fitted
+coefficient is no longer the published fit and must not claim its provenance.
+
+### 61.4 Invalid cases are reported, never repaired
+
+If a perturbation drives the coupled state off the thermochemistry table or out of
+the checked property band, the case is recorded with its terminal status and
+excluded from the ranking with an explicit note. It is **never clamped back into
+validity**, because that would silently substitute a different case.
+
+One case did this: the bare **HEM** injector limit gives an oxidizer flow too low
+for the chamber to reach the table's 10 bar floor, so no firing state is ever
+established. `summarise()` returns an invalid `CaseOutcome` carrying the feed
+status rather than raising, and the study prints `--` in every performance column
+rather than a percentage change against a run that never fired.
+
+## 62. Ranking method
+
+Disclosed, and computed from the runs rather than assigned:
+
+```
+swing(family, metric) = max | 100 (variant_metric / baseline_metric − 1) |
+                        over the VALID variants of that family
+```
+
+Families are ordered by that swing, largest first. A family with no valid variant
+is **dropped** rather than ranked at zero, which would understate it as
+insensitive.
+
+Three metrics are ranked separately — total impulse, thrust-decay percentage and
+burn duration — because they do not share a dominant assumption. Burn duration is
+led by the regression coefficient while impulse and slope are led by the injector
+model, so **no single universal ranking is claimed**.
+
+### 62.1 Result
+
+| Rank | Total impulse | Thrust decay | Burn duration |
+| --- | --- | --- | --- |
+| 1 | injector model 13.589 % | injector model 52.770 % | regression coefficient `a` 11.401 % |
+| 2 | regression coefficient `a` 9.028 % | regression coefficient `a` 18.310 % | injector model 6.845 % |
+| 3 | initial tank temperature 7.347 % | initial tank temperature 18.189 % | initial tank temperature 4.320 % |
+| 4 | injector effective area 5.381 % | injector effective area 14.071 % | regression exponent `n` 3.271 % |
+| 5 | regression exponent `n` 2.606 % | regression exponent `n` 9.308 % | injector effective area 3.115 % |
+| 6 | `c*` efficiency 0.073 % | `c*` efficiency 1.857 % | `c*` efficiency 0.297 % |
+| 7 | chemistry grid resolution 0.038 % | chemistry `p_c` dependence 0.063 % | chemistry grid resolution 0.004 % |
+| 8 | chemistry `p_c` dependence 0.003 % | chemistry grid resolution 0.042 % | chemistry `p_c` dependence 0.000 % |
+
+Two results deserve recording because they are counter-intuitive:
+
+* **The injector model outranks every propellant property.** A reduced-order
+  correlation choice — SPI versus the Dyer blend — moves total impulse more than
+  the regression coefficient, the tank temperature or the chemistry.
+* **`η_c*` barely moves total impulse (0.073 %)** despite being the largest
+  unvalidated number in the model. The pressure-fed system self-compensates: a
+  higher `c*` raises `p_c`, which cuts the injector's pressure drop and hence the
+  flow, while the grain-limited burn fixes the fuel mass. It still moves chamber
+  pressure by about 7 %, which is what any pressure-driven conclusion rests on.
+
+## 63. Defect found and fixed during the audit
+
+The audit drove the coupled solver into a region no published case reaches and
+exposed a **diagnostic** defect in `variable_feed_system.py`.
+
+**Demonstrated independently.** With the bare HEM injector the feed root sits at
+`ṁ_ox` ≈ 0.0346 kg/s, giving `O/F` ≈ 1.2845 — comfortably inside the tabulated
+span [1.20, 4.00]. The binding constraint is the chamber-pressure floor: at the
+lower search edge set by the O/F bound the pressure margin `F(p_min) − p_min` is
+−148 174 Pa, so the pressure floor raises that edge from `ṁ_ox` = 0.031105 to
+0.037579 kg/s. The root lies below that, so the case fails on **pressure**, not
+mixture ratio.
+
+**Consequence.** The Milestone 5 code returned `OF_OUTSIDE_TABLE` for every root
+below the window regardless of which bound had trimmed it, pointing a user at the
+wrong assumption. Diagnostic only: every Milestone 4 and 5 study case is
+`FLOWING`, so no published number was ever affected.
+
+**Fixed minimally.** The trimming loop records which constraint set each edge and
+reports that reason. The upper edge is handled symmetrically, and `NO_ROOT` is
+retained for the genuinely different case where the injector's free-discharge
+flow — not the table — bounds the window.
+
+**Regression tests added,** three, in `tests/test_variable_feed_system.py`: the HEM
+case must report `PRESSURE_OUTSIDE_TABLE`; a starved injector must still report
+`OF_OUTSIDE_TABLE`, so the fix did not simply relabel everything; and the nominal
+operating point must be unchanged to 1e-12 relative.
+
+**Verified no published output moved.** `variable_thermochemistry_study.py`
+produces byte-identical output before and after, and the nominal solve still gives
+`ṁ_ox` = 0.10270411484637884 kg/s, `p_c` = 2 467 088.5060716257 Pa.
+
+### 63.1 Two documentation corrections
+
+Neither affects code or any computed result.
+
+* **Milestone 4 commit message.** It stated the SPI-vs-Dyer initial-thrust change
+  as "+18.6 %" alongside the pair "313.7 → 382.0 N". Those are mutually
+  inconsistent: 382.0/313.7 − 1 = **+21.75 %**. The newton values are correct and
+  match live computation and the README's case table; the percentage is wrong.
+  Commit messages are immutable, so the value is corrected in `VERIFICATION.md`
+  rather than by rewriting history.
+* **Milestone 5 rounding.** The M5 thrust decay is −12.914915 %, which rounds to
+  **−12.91 %** at two decimals; the Milestone 5 README reported −12.92 %. Corrected
+  in `README.md` this milestone. The underlying value never changed.
+
+### 63.2 Provenance corrections
+
+Found by the §22 source audit; documentation only.
+
+* `rocketcea` is authored by **Charlie Taylor**, not "C. Carmichael" as the
+  Milestone 5 source table stated. Corrected, with the version (1.2.3) and licence
+  (GPL-3.0) added.
+* NASA RP-1311 is two documents with different author order — Gordon & McBride
+  (1994) for Part I *Analysis*, McBride & Gordon (1996) for Part II *Users Manual
+  and Program Description*. The citation now names both.
+* The Milestone 5 source table restarted its numbering at 1 while Milestones 1–4
+  used a continuous `S`-series. Renumbered S17–S20 for notation consistency.
+
+## 64. Robust and model-sensitive conclusions
+
+### 64.1 Robust within the tested deterministic family
+
+Every case in the tested set agreed; no exceptions were found in any of the eight.
+This is **not** a probability and says nothing about untested regions of the
+assumption space.
+
+| Conclusion | Support |
+| --- | --- |
+| Coupling the tank reverses the M3 rising-thrust trend | 5/5 |
+| Variable thermochemistry preserves the falling-thrust sign | 15/15 |
+| Variable thermochemistry deepens the decay relative to M4 | 5/5 |
+| `c*` variation dominates the M5 chemistry effect over `γ` | 15/15 |
+| Feed coupling changes thrust shape more than the chemistry does | 5/5 |
+| `O/F` drifts downward during the burn | 15/15 |
+| The 10 L reference case burns through before liquid runs out | 15/15 |
+| A small tank can instead terminate on liquid depletion | 1/1 |
+
+Conclusion 4 in numbers: delivered `c*` moves 5.633 % over the nominal burn while
+`γ` moves 0.265 % — a factor of 21.2.
+
+### 64.2 Model-sensitive
+
+The **level** of every performance number is not robust:
+
+* total impulse moves ±13.6 % on the injector-model choice alone, and ±9 % on a
+  ±10 % change in the regression coefficient;
+* thrust-decay magnitude ranges from −2.5 % to −17.8 % across the tested set, even
+  though the sign never changes;
+* which terminal event occurs depends on tank sizing;
+* absolute `I_sp` carries the full weight of the unmeasured `η_c*` plus a
+  loss-free nozzle.
+
+The general lesson the study supports: this model constrains the **shape** of the
+thrust history far better than its **magnitude**.
+
+## 65. Verification summary
+
+59 independent checks, all passing. Expected values are built from longhand
+algebra, closed forms, alternate numerical routes, published measurements or raw
+CSV columns — never by calling the same production function twice.
+
+| Kind | Checks | Worst residual |
+| --- | --- | --- |
+| Algebraic identity | 49 | 9.313e-10 Pa (≈ 4e-16 relative) |
+| Discretisation | 8 | 2.911e-07 relative |
+| Empirical | 2 | 1.085e-01 |
+
+Discretisation rows are integrator-tolerance quantities and are reported
+separately, never presented as if they should reach machine precision.
+
+Full detail in `VERIFICATION.md`. Final gate: 857 tests, zero warnings under
+`-W error`, `ruff check` clean, 29 figures byte-identical on regeneration, both
+CEA data files byte-identical on regeneration.
+
+## 66. Final scope boundary
+
+Absent from production code at the close of the project: finite-rate combustion
+chemistry and kinetics, combustion instability, ignition and chamber-filling
+transients, the vapour-only discharge tail after liquid depletion, injector
+hardware geometry, nozzle contour generation, shocks and flow separation
+modelling, feed-line pressure losses, valve dynamics, wall heat transfer,
+structural or casing stress analysis, thermal sizing, flight dynamics, control
+systems, and probabilistic uncertainty quantification.
+
+The boundary is pinned by two permanent guards, in `tests/test_performance.py` and
+`scripts/manual_check.py`, which forbid finite-rate chemistry and kinetics symbols
+alongside the other deferred physics. Those guards were retargeted at Milestones
+3, 4 and 5 as each milestone was chartered to cross the previous boundary;
+Milestone 6 crossed no boundary and left them unchanged.
+
+**Development stops at Milestone 6.**

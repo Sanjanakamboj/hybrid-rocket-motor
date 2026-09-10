@@ -236,6 +236,19 @@ def solve_variable_feed_coupling(
         return (oxidizer_flow + fuel) * state.c_star_m_s / throat_area - edge_pressure_pa
 
     # --- trim the window to where the inner chamber root is inside the table ---
+    # Which constraint sets each edge is remembered, so that a feed root landing
+    # outside the window is reported with the reason that actually bound it. The
+    # mixture ratio and the chamber pressure can each bind independently, and a
+    # root can sit comfortably inside the O/F span while still demanding a chamber
+    # pressure the table does not cover.
+    low_edge_reason = VariableFeedStatus.OF_OUTSIDE_TABLE
+    # The upper edge starts as whichever of the two candidates min() actually
+    # picked. If the injector's free-discharge flow is the binding one then a
+    # root above the window is not a table limitation at all, and NO_ROOT is the
+    # honest answer.
+    high_edge_reason = (
+        VariableFeedStatus.OF_OUTSIDE_TABLE if flow_high < free_flow else VariableFeedStatus.NO_ROOT
+    )
     pressure_low, pressure_high = table.pressure_bounds_pa
     for edge_pressure, want_non_negative in (
         (pressure_low, True),
@@ -259,6 +272,7 @@ def solve_variable_feed_coupling(
                     maxiter=200,
                 )
             )
+            low_edge_reason = VariableFeedStatus.PRESSURE_OUTSIDE_TABLE
         else:
             # Need F(p_max) <= p_max; trim above.
             if margin_high <= 0.0:
@@ -275,6 +289,7 @@ def solve_variable_feed_coupling(
                     maxiter=200,
                 )
             )
+            high_edge_reason = VariableFeedStatus.PRESSURE_OUTSIDE_TABLE
         if not (flow_low < flow_high):
             return not_flowing(VariableFeedStatus.PRESSURE_OUTSIDE_TABLE)
 
@@ -312,10 +327,14 @@ def solve_variable_feed_coupling(
     residual_high = residual(flow_high)
 
     if residual_low <= 0.0:
-        # The feed root sits at a lower oxidizer flow than the table supports.
-        return not_flowing(VariableFeedStatus.OF_OUTSIDE_TABLE)
+        # The feed root sits at a lower oxidizer flow than the window allows, so
+        # the operating point would need chemistry the table does not carry. The
+        # reason reported is whichever constraint set that edge.
+        return not_flowing(low_edge_reason)
     if residual_high > 0.0:
-        return not_flowing(VariableFeedStatus.NO_ROOT)
+        # The root sits above the window: the operating point would need chemistry
+        # the table does not carry, reported with the constraint that bound it.
+        return not_flowing(high_edge_reason)
 
     oxidizer_flow = float(brentq(residual, flow_low, flow_high, xtol=xtol, maxiter=200))
 

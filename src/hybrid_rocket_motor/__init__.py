@@ -29,7 +29,13 @@ fed back into the coupled solve, so the chemistry and the feed system now move
 each other.  The table is committed, so no chemistry solver is needed at run
 time; regenerating it needs the optional ``cea`` extra.
 
-All five milestones deliberately do **not** model finite-rate combustion
+Milestone 6 adds no physics.  It is the closing audit: an independent end-to-end
+verification against separately coded references, and a deterministic one-factor
+robustness study that measures how much each remaining assumption is worth.  Its
+headline finding is that the *shape* of the predicted thrust history is robust
+across every perturbation tested, while its *level* is not.
+
+All six milestones deliberately do **not** model finite-rate combustion
 chemistry, combustion instability, ignition or chamber-filling transients,
 nozzle contours, shocks or flow separation, feed-line pressure losses,
 structural design or thermal design.  Equilibrium chemistry gives instantaneous,
@@ -137,7 +143,17 @@ from .transient import (
     simulate_transient,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
+from .robustness import (
+    CaseOutcome,
+    ConclusionSupport,
+    ModelKind,
+    SensitivityFamily,
+    SensitivityRanking,
+    conclusion_support,
+    rank_families,
+    summarise,
+)
 from .thermochemistry import (
     DEFAULT_C_STAR_EFFICIENCY,
     TableStatus,
@@ -189,9 +205,11 @@ __all__ = [
     "BlowdownResult",
     "BlowdownTermination",
     "CallableOxidizerFlow",
+    "CaseOutcome",
     "ChamberState",
     "ChamberStatus",
     "CombustionProperties",
+    "ConclusionSupport",
     "ConstantOxidizerFlow",
     "ExpansionRegime",
     "FeedSolution",
@@ -204,6 +222,7 @@ __all__ = [
     "InjectorModel",
     "InjectorResult",
     "MassFluxUnit",
+    "ModelKind",
     "NitrousTank",
     "NozzleExitState",
     "NozzleGeometry",
@@ -216,6 +235,8 @@ __all__ = [
     "Provenance",
     "RegressionRateUnit",
     "SaturationState",
+    "SensitivityFamily",
+    "SensitivityRanking",
     "TableStatus",
     "TankPhase",
     "TankState",
@@ -237,6 +258,7 @@ __all__ = [
     "area_mach_ratio",
     "classify_expansion_regime",
     "combustion_properties_from_state",
+    "conclusion_support",
     "couple_transient_to_performance",
     "default_table",
     "fuel_mass_flow",
@@ -247,6 +269,7 @@ __all__ = [
     "mixture_ratio",
     "oxidizer_flow_for_mixture_ratio",
     "oxidizer_mass_flux",
+    "rank_families",
     "remaining_fuel_mass_kg",
     "saturated_state",
     "saturation_pressure_pa",
@@ -262,4 +285,5 @@ __all__ = [
     "solve_variable_feed_coupling",
     "solve_variable_performance_point",
     "speed_of_sound",
+    "summarise",
 ]

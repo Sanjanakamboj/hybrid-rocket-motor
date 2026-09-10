@@ -19,7 +19,7 @@ import pytest
 from hybrid_rocket_motor.chamber import ILLUSTRATIVE_N2O_HTPB_COMBUSTION
 from hybrid_rocket_motor.feed_system import FeedStatus, solve_feed_coupling
 from hybrid_rocket_motor.geometry import REPRESENTATIVE_GRAIN
-from hybrid_rocket_motor.injector import Injector
+from hybrid_rocket_motor.injector import Injector, InjectorModel
 from hybrid_rocket_motor.nozzle import REFERENCE_NOZZLE
 from hybrid_rocket_motor.regression import REZAEI_2018_N2O_HTPB
 from hybrid_rocket_motor.tank import (
@@ -299,3 +299,54 @@ def test_burnout_overshoot_allowance_is_numerical_only(table, tank_state):
     assert with_allowance.chamber_pressure_pa == pytest.approx(
         inside.chamber_pressure_pa, rel=1e-15
     )
+
+
+# -- Milestone 6 regression: the failure status must name the right constraint ----------
+
+
+def test_hem_injector_reports_the_pressure_floor_not_the_mixture_ratio(table, tank_state):
+    """Regression for a diagnostic defect found by the Milestone 6 audit.
+
+    Driving the coupling with the bare HEM limit gives an oxidizer flow low enough
+    that the chamber cannot reach the table's 10 bar pressure floor. The mixture
+    ratio at that root is about 1.28, which is comfortably INSIDE the tabulated
+    O/F span, so the binding constraint is the chamber pressure.
+
+    The original Milestone 5 code returned ``OF_OUTSIDE_TABLE`` for every root that
+    fell below the search window, regardless of which bound had actually trimmed
+    it, which pointed a user at the wrong assumption. No published Milestone 4 or 5
+    result reaches this branch -- every study case is FLOWING -- so the defect was
+    diagnostic only and no reported number changed.
+    """
+    solution = solve_variable_feed_coupling(
+        tank_state,
+        Injector(3.5e-6, model=InjectorModel.HEM),
+        GRAIN,
+        LAW,
+        table,
+        NOZZLE,
+        PORT_RADIUS,
+    )
+    assert solution.status is VariableFeedStatus.PRESSURE_OUTSIDE_TABLE
+    assert not solution.is_flowing
+
+
+def test_mixture_ratio_limited_case_still_reports_the_of_bound(table, tank_state):
+    """The complementary case must keep naming the mixture ratio.
+
+    A vanishingly small injector starves the port so far that O/F itself leaves the
+    table, and that must still be reported as an O/F limit -- otherwise the fix
+    above would simply have relabelled everything as a pressure limit.
+    """
+    solution = solve_variable_feed_coupling(
+        tank_state, Injector(1.0e-8), GRAIN, LAW, table, NOZZLE, PORT_RADIUS
+    )
+    assert solution.status is VariableFeedStatus.OF_OUTSIDE_TABLE
+    assert not solution.is_flowing
+
+
+def test_the_fix_did_not_disturb_the_nominal_operating_point(solution):
+    """The published Milestone 5 reference values must be untouched by the fix."""
+    assert solution.status is VariableFeedStatus.FLOWING
+    assert solution.oxidizer_mass_flow_kg_s == pytest.approx(0.10270411484637884, rel=1e-12)
+    assert solution.chamber_pressure_pa == pytest.approx(2467088.5060716257, rel=1e-12)
